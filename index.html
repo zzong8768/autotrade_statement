@@ -302,49 +302,67 @@ function ShareModal({ onClose }) {
   useEffect(() => {
     const el = document.getElementById('inv-doc');
     if (!el || typeof html2canvas === 'undefined') return;
-    html2canvas(el, {
+    /* 미리보기도 A4 고정 너비 클론 */
+    const A4W = 794;
+    const wrapP = document.createElement('div');
+    wrapP.style.cssText = 'position:fixed;top:-19999px;left:-19999px;width:' + A4W + 'px;background:#fff;overflow:visible;z-index:-9999;';
+    const cloneP = el.cloneNode(true);
+    cloneP.style.cssText += ';width:' + A4W + 'px;min-width:' + A4W + 'px;overflow:visible;';
+    const tblP = cloneP.querySelector('.inv-tbl');
+    if (tblP) tblP.style.cssText += ';width:' + A4W + 'px;min-width:' + A4W + 'px;';
+    wrapP.appendChild(cloneP);
+    document.body.appendChild(wrapP);
+    html2canvas(cloneP, {
       scale: 0.5,
       backgroundColor: '#ffffff',
       logging: false,
       useCORS: true,
-      width: el.scrollWidth,
-      height: el.scrollHeight,
-      windowWidth: el.scrollWidth + 40,
+      width: A4W,
+      windowWidth: A4W + 40,
       scrollX: 0, scrollY: 0,
     })
-      .then(c => setPreview(c.toDataURL('image/jpeg', 0.7)))
-      .catch(() => {});
+      .then(c => { setPreview(c.toDataURL('image/jpeg', 0.7)); document.body.removeChild(wrapP); })
+      .catch(() => { try { document.body.removeChild(wrapP); } catch(_){} });
   }, []);
 
   async function capture(scale = 2) {
     const el = document.getElementById('inv-doc');
     if (!el) throw new Error('요소 없음');
 
-    /* ── 부모 overflow 임시 해제 → 모바일 잘림 방지 ── */
-    const wrap = el.closest('.inv-wrap') || el.parentElement;
-    const prevOverflow = wrap ? wrap.style.overflow : '';
-    const prevMaxW     = wrap ? wrap.style.maxWidth  : '';
-    if (wrap) { wrap.style.overflow = 'visible'; wrap.style.maxWidth = 'none'; }
+    /* ══ A4 고정 너비(794px) 숨김 컨테이너에 클론 → 기기 무관 동일 출력 ══ */
+    const A4W = 794;
 
-    const fullW = el.scrollWidth;
-    const fullH = el.scrollHeight;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = [
+      'position:fixed', 'top:-19999px', 'left:-19999px',
+      `width:${A4W}px`, 'background:#fff',
+      'overflow:visible', 'z-index:-9999',
+    ].join(';');
+
+    const clone = el.cloneNode(true);
+    clone.style.cssText += ';width:' + A4W + 'px;min-width:' + A4W + 'px;overflow:visible;';
+
+    /* 테이블도 고정 너비 강제 */
+    const tbl = clone.querySelector('.inv-tbl');
+    if (tbl) tbl.style.cssText += ';width:' + A4W + 'px;min-width:' + A4W + 'px;';
+
+    wrap.appendChild(clone);
+    document.body.appendChild(wrap);
 
     let raw;
     try {
-      raw = await html2canvas(el, {
+      raw = await html2canvas(clone, {
         scale,
         backgroundColor: '#ffffff',
         useCORS:     true,
         logging:     false,
-        width:       fullW,
-        height:      fullH,
-        windowWidth: Math.max(fullW + 40, 1400),
+        width:       A4W,
+        windowWidth: A4W + 40,
         scrollX:     0,
         scrollY:     0,
       });
     } finally {
-      /* 반드시 원복 */
-      if (wrap) { wrap.style.overflow = prevOverflow; wrap.style.maxWidth = prevMaxW; }
+      document.body.removeChild(wrap);
     }
 
     /* ── 여백(20px) 추가 ── */
