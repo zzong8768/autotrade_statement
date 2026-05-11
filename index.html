@@ -1002,9 +1002,19 @@ function App() {
   const stampRef      = useRef(null);
   const importInputRef = useRef(null);
 
-  /* 도장 → IndexedDB에서 로드 */
+  /* 도장 → IndexedDB 우선, 없으면 localStorage 폴백 (모바일 대응) */
   useEffect(() => {
-    idbGet('stamp').then(v => { if (v) setStamp(v); }).catch(() => {});
+    idbGet('stamp')
+      .then(v => {
+        if (v) { setStamp(v); return; }
+        /* IndexedDB 없으면 localStorage 시도 */
+        const ls = loadLS('zytn_stamp', null);
+        if (ls) setStamp(ls);
+      })
+      .catch(() => {
+        const ls = loadLS('zytn_stamp', null);
+        if (ls) setStamp(ls);
+      });
   }, []);
 
   /* 자동 저장 (localStorage) */
@@ -1040,6 +1050,7 @@ function App() {
         `카탈로그 품목: ${data.catalog?.length ?? 0}개`,
         `거래처 목록: ${data.customers?.length ?? 0}개`,
         `현재 명세서 품목: ${data.currentItems?.length ?? 0}개`,
+        `도장 이미지: ${data.stamp ? '포함' : '없음'}`,
       ].join('\n');
 
       if (!confirm(`다음 데이터를 가져올까요?\n\n${msg}\n\n기존 데이터는 덮어쓰입니다.`)) {
@@ -1053,6 +1064,11 @@ function App() {
       if (data.customer)     setCustomer(data.customer);
       if (data.currentItems) setItems(data.currentItems);
       if (data.remark != null) setRemark(data.remark);
+      if (data.stamp) {
+        setStamp(data.stamp);
+        saveLS('zytn_stamp', data.stamp);
+        idbSet('stamp', data.stamp).catch(() => {});
+      }
 
       showToast(`✅ 데이터 가져오기 완료`);
       e.target.value = '';
@@ -1071,8 +1087,10 @@ function App() {
     r.onload = async ev => {
       const data = ev.target.result;
       setStamp(data);
+      /* IndexedDB + localStorage 동시 저장 (모바일 동기화용) */
+      saveLS('zytn_stamp', data);
       try { await idbSet('stamp', data); showToast('✅ 도장이 등록되었습니다'); }
-      catch  { showToast('⚠️ 도장 저장 실패 (브라우저 저장소 오류)'); }
+      catch  { showToast('✅ 도장이 등록되었습니다 (localStorage)'); }
     };
     r.readAsDataURL(f);
     e.target.value = '';
@@ -1120,6 +1138,7 @@ function App() {
       customer,
       currentItems: items,
       remark,
+      stamp,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
