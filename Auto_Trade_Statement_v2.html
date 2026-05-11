@@ -1155,7 +1155,29 @@ function App() {
 
       <div className="inv-wrap">
         <InvoiceDoc
-          items={items} SaveToList}
+          items={items} date={date}
+          supplier={supplier} customer={customer}
+          stamp={stamp}
+          remark={remark} onRemarkChange={setRemark}
+          onRemove={removeItem}
+          onStampClick={() => stampRef.current?.click()}
+        />
+      </div>
+
+      <div className="action-panel">
+        <button className="btn btn-print" onClick={() => setModal('share')}>🖨️ 인쇄 / PDF 저장</button>
+        <button className="btn btn-soft" onClick={() => setModal('catalog')}>📋 카탈로그 관리</button>
+      </div>
+
+      {/* ── 모달 ── */}
+      {modal === 'supplier' && (
+        <SupplierModal supplier={supplier} onSave={handleSupplierSave} onClose={() => setModal(null)} />
+      )}
+      {modal === 'customer' && (
+        <CustomerModal
+          customer={customer} customers={customers}
+          onApply={handleCustomerApply}
+          onSaveToList={handleCustomerSaveToList}
           onDeleteFromList={handleCustomerDeleteFromList}
           onClose={() => setModal(null)}
         />
