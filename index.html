@@ -310,7 +310,18 @@ function ShareModal({ onClose }) {
   async function capture(scale = 2) {
     const el = document.getElementById('inv-doc');
     if (!el) throw new Error('요소 없음');
-    return html2canvas(el, { scale, backgroundColor: '#ffffff', useCORS: true, logging: false });
+    const raw = await html2canvas(el, { scale, backgroundColor: '#ffffff', useCORS: true, logging: false });
+
+    /* ── 여백(20px) 추가 ── */
+    const pad = Math.round(20 * scale);
+    const out = document.createElement('canvas');
+    out.width  = raw.width  + pad * 2;
+    out.height = raw.height + pad * 2;
+    const ctx = out.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(raw, pad, pad);
+    return out;
   }
 
   function toast(text, type = 'ok') {
@@ -1144,17 +1155,7 @@ function App() {
 
       <div className="inv-wrap">
         <InvoiceDoc
-          items={items} date={date}
-          supplier={supplier} customer={customer}
-          stamp={stamp}
-          remark={remark} onRemarkChange={setRemark}
-          onRemove={removeItem}
-          onStampClick={() => stampRef.current?.click()}
-        />
-      </div>
-
-      <div className="action-panel">
-        <button className="btn btn-print" onClick={() => setModal('share')}>🖨️ 인쇄 / PDF 저SaveToList}
+          items={items} SaveToList}
           onDeleteFromList={handleCustomerDeleteFromList}
           onClose={() => setModal(null)}
         />
