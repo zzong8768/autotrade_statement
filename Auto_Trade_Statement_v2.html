@@ -1144,4 +1144,27 @@ function App() {
         <CustomerModal
           customer={customer} customers={customers}
           onApply={handleCustomerApply}
-          onSaveToList={handleCustomer
+          onSaveToList={handleCustomerSaveToList}
+          onDeleteFromList={handleCustomerDeleteFromList}
+          onClose={() => setModal(null)}
+        />
+      )}
+      {modal === 'catalog' && (
+        <CatalogModal catalog={catalog} onDelete={handleCatalogDelete} onClose={() => setModal(null)} />
+      )}
+      {modal === 'share' && (
+        <ShareModal onClose={() => setModal(null)} />
+      )}
+      {modal === 'json' && (
+        <JsonModal onExport={handleExport} onClose={() => setModal(null)} importInputRef={importInputRef} />
+      )}
+
+      {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
