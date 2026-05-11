@@ -320,22 +320,32 @@ function ShareModal({ onClose }) {
     const el = document.getElementById('inv-doc');
     if (!el) throw new Error('요소 없음');
 
-    /* ── 모바일 잘림 방지: 스크롤 전체 너비/높이로 캡처 ── */
+    /* ── 부모 overflow 임시 해제 → 모바일 잘림 방지 ── */
+    const wrap = el.closest('.inv-wrap') || el.parentElement;
+    const prevOverflow = wrap ? wrap.style.overflow : '';
+    const prevMaxW     = wrap ? wrap.style.maxWidth  : '';
+    if (wrap) { wrap.style.overflow = 'visible'; wrap.style.maxWidth = 'none'; }
+
     const fullW = el.scrollWidth;
     const fullH = el.scrollHeight;
 
-    const raw = await html2canvas(el, {
-      scale,
-      backgroundColor: '#ffffff',
-      useCORS: true,
-      logging: false,
-      width:        fullW,
-      height:       fullH,
-      windowWidth:  fullW + 40,
-      windowHeight: fullH + 40,
-      scrollX:      0,
-      scrollY:      0,
-    });
+    let raw;
+    try {
+      raw = await html2canvas(el, {
+        scale,
+        backgroundColor: '#ffffff',
+        useCORS:     true,
+        logging:     false,
+        width:       fullW,
+        height:      fullH,
+        windowWidth: Math.max(fullW + 40, 1400),
+        scrollX:     0,
+        scrollY:     0,
+      });
+    } finally {
+      /* 반드시 원복 */
+      if (wrap) { wrap.style.overflow = prevOverflow; wrap.style.maxWidth = prevMaxW; }
+    }
 
     /* ── 여백(20px) 추가 ── */
     const pad = Math.round(20 * scale);
@@ -372,16 +382,27 @@ function ShareModal({ onClose }) {
     setBusy(true);
     try {
       const canvas = await capture(2);
-      await new Promise((res, rej) => {
-        canvas.toBlob(async blob => {
-          try {
-            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-            res();
-          } catch(e) { rej(e); }
-        }, 'image/png');
-      });
-      toast('✅ 클립보드에 복사됨 — 카톡/메일에 붙여넣기 하세요');
-    } catch { toast('❌ 클립보드 복사 실패 (HTTPS 필요)', 'err'); }
+      /* ClipboardItem 미지원(모바일) 체크 */
+      if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
+        /* 폴백: 자동 PNG 저장 */
+        const link = document.createElement('a');
+        const today = new Date().toLocaleDateString('ko-KR').replace(/\. /g,'-').replace('.','');
+        link.download = `거래명세서_${today}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        toast('📱 모바일은 PNG 저장됨 — 카톡 파일 전송으로 공유하세요');
+      } else {
+        await new Promise((res, rej) => {
+          canvas.toBlob(async blob => {
+            try {
+              await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+              res();
+            } catch(e) { rej(e); }
+          }, 'image/png');
+        });
+        toast('✅ 클립보드에 복사됨 — 카톡/메일에 붙여넣기 하세요');
+      }
+    } catch { toast('❌ 복사 실패 — PNG 저장 버튼을 이용하세요', 'err'); }
     setBusy(false);
   }
 
