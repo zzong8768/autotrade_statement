@@ -349,6 +349,17 @@ function ShareModal({ onClose }) {
     wrap.appendChild(clone);
     document.body.appendChild(wrap);
 
+    /* ── 클론 내 input → div 교체 (html2canvas 전에 실행해야 효과 있음) ── */
+    clone.querySelectorAll('input').forEach(inp => {
+      const d = document.createElement('div');
+      d.textContent = inp.value || '';
+      d.style.cssText = (inp.getAttribute('style') || '') +
+        ';overflow:visible;white-space:nowrap;display:flex;align-items:center;';
+      inp.parentNode.replaceChild(d, inp);
+    });
+
+    const fullH = clone.scrollHeight;
+
     let raw;
     try {
       raw = await html2canvas(clone, {
@@ -357,22 +368,15 @@ function ShareModal({ onClose }) {
         useCORS:     true,
         logging:     false,
         width:       A4W,
+        height:      fullH,
         windowWidth: A4W + 40,
+        windowHeight: fullH + 40,
         scrollX:     0,
         scrollY:     0,
       });
     } finally {
       document.body.removeChild(wrap);
     }
-
-    /* ── 클론 내 input → div 교체 (비고 텍스트 잘림 방지) ── */
-    clone.querySelectorAll('input').forEach(inp => {
-      const d = document.createElement('div');
-      d.textContent = inp.value || '';
-      d.style.cssText = (inp.getAttribute('style') || '') +
-        ';overflow:visible;white-space:nowrap;display:flex;align-items:center;';
-      inp.parentNode.replaceChild(d, inp);
-    });
 
     /* ── 여백(40px) 추가 ── */
     const pad = Math.round(40 * scale);
