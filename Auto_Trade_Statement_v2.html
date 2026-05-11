@@ -302,7 +302,16 @@ function ShareModal({ onClose }) {
   useEffect(() => {
     const el = document.getElementById('inv-doc');
     if (!el || typeof html2canvas === 'undefined') return;
-    html2canvas(el, { scale: 0.5, backgroundColor: '#ffffff', logging: false, useCORS: true })
+    html2canvas(el, {
+      scale: 0.5,
+      backgroundColor: '#ffffff',
+      logging: false,
+      useCORS: true,
+      width: el.scrollWidth,
+      height: el.scrollHeight,
+      windowWidth: el.scrollWidth + 40,
+      scrollX: 0, scrollY: 0,
+    })
       .then(c => setPreview(c.toDataURL('image/jpeg', 0.7)))
       .catch(() => {});
   }, []);
@@ -310,7 +319,23 @@ function ShareModal({ onClose }) {
   async function capture(scale = 2) {
     const el = document.getElementById('inv-doc');
     if (!el) throw new Error('요소 없음');
-    const raw = await html2canvas(el, { scale, backgroundColor: '#ffffff', useCORS: true, logging: false });
+
+    /* ── 모바일 잘림 방지: 스크롤 전체 너비/높이로 캡처 ── */
+    const fullW = el.scrollWidth;
+    const fullH = el.scrollHeight;
+
+    const raw = await html2canvas(el, {
+      scale,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      logging: false,
+      width:        fullW,
+      height:       fullH,
+      windowWidth:  fullW + 40,
+      windowHeight: fullH + 40,
+      scrollX:      0,
+      scrollY:      0,
+    });
 
     /* ── 여백(20px) 추가 ── */
     const pad = Math.round(20 * scale);
