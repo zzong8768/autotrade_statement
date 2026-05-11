@@ -154,12 +154,34 @@ body {
 .shr-status.ok  { color: #34d399; }
 .shr-status.err { color: #f87171; }
 
-/* ── Print ─────────────────── */
+/* ── Print / PDF (A4 기준) ──── */
+@page {
+  size: A4 portrait;
+  margin: 15mm 12mm 15mm 12mm; /* 상 우 하 좌 */
+}
 @media print {
-  body { background: white; padding: 0; }
+  html, body { background: white !important; padding: 0 !important; margin: 0 !important; }
   .ctrl-panel, .app-header, .action-panel { display: none !important; }
-  .inv-wrap { border: none; box-shadow: none; padding: 0; overflow: visible; }
+  .inv-wrap {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .app-wrap {
+    max-width: 100% !important;
+    padding: 0 !important;
+    gap: 0 !important;
+  }
+  .inv-tbl {
+    width: 100% !important;
+    font-size: 10px !important;
+  }
   .del-btn { display: none !important; }
+  /* A4 한 페이지에 맞게 행 높이 축소 */
+  .inv-tbl td { padding: 3px 4px !important; }
 }
 </style>
 </head>
@@ -1132,19 +1154,7 @@ function App() {
       </div>
 
       <div className="action-panel">
-        <button className="btn btn-print" onClick={() => setModal('share')}>🖨️ 인쇄 / PDF 저장</button>
-        <button className="btn btn-soft" onClick={() => setModal('catalog')}>📋 카탈로그 관리</button>
-      </div>
-
-      {/* ── 모달 ── */}
-      {modal === 'supplier' && (
-        <SupplierModal supplier={supplier} onSave={handleSupplierSave} onClose={() => setModal(null)} />
-      )}
-      {modal === 'customer' && (
-        <CustomerModal
-          customer={customer} customers={customers}
-          onApply={handleCustomerApply}
-          onSaveToList={handleCustomerSaveToList}
+        <button className="btn btn-print" onClick={() => setModal('share')}>🖨️ 인쇄 / PDF 저SaveToList}
           onDeleteFromList={handleCustomerDeleteFromList}
           onClose={() => setModal(null)}
         />
