@@ -79,7 +79,7 @@ body {
 @keyframes fadeup { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
 /* ── Stamp hover hint ───────── */
-.stamp-wrap { position: relative; cursor: pointer; flex-shrink: 0; }
+.stamp-wrap { position: relative; cursor: pointer; flex-shrink: 0; width:50px; height:50px; overflow:hidden; border-radius:50%; }
 .stamp-wrap::after { content: '클릭 변경'; position: absolute; inset: 0; background: rgba(0,0,0,.45); color: #fff; font-size: 9px; font-weight: 600; display: flex; align-items: center; justify-content: center; border-radius: 50%; opacity: 0; transition: opacity .15s; }
 .stamp-wrap:hover::after { opacity: 1; }
 
@@ -365,8 +365,17 @@ function ShareModal({ onClose }) {
       document.body.removeChild(wrap);
     }
 
-    /* ── 여백(20px) 추가 ── */
-    const pad = Math.round(20 * scale);
+    /* ── 클론 내 input → div 교체 (비고 텍스트 잘림 방지) ── */
+    clone.querySelectorAll('input').forEach(inp => {
+      const d = document.createElement('div');
+      d.textContent = inp.value || '';
+      d.style.cssText = (inp.getAttribute('style') || '') +
+        ';overflow:visible;white-space:nowrap;display:flex;align-items:center;';
+      inp.parentNode.replaceChild(d, inp);
+    });
+
+    /* ── 여백(40px) 추가 ── */
+    const pad = Math.round(40 * scale);
     const out = document.createElement('canvas');
     out.width  = raw.width  + pad * 2;
     out.height = raw.height + pad * 2;
@@ -1066,19 +1075,15 @@ function App() {
   const stampRef      = useRef(null);
   const importInputRef = useRef(null);
 
-  /* 도장 → IndexedDB 우선, 없으면 localStorage 폴백 (모바일 대응) */
+  /* 도장 로드: localStorage 즉시 → IndexedDB로 갱신 (모바일/데스크탑 공통) */
   useEffect(() => {
+    /* 1) localStorage에서 즉시 로드 (JSON import 동기화 지원) */
+    const ls = loadLS('zytn_stamp', null);
+    if (ls) setStamp(ls);
+    /* 2) IndexedDB에서 덮어쓰기 (더 최신일 경우) */
     idbGet('stamp')
-      .then(v => {
-        if (v) { setStamp(v); return; }
-        /* IndexedDB 없으면 localStorage 시도 */
-        const ls = loadLS('zytn_stamp', null);
-        if (ls) setStamp(ls);
-      })
-      .catch(() => {
-        const ls = loadLS('zytn_stamp', null);
-        if (ls) setStamp(ls);
-      });
+      .then(v => { if (v) { setStamp(v); saveLS('zytn_stamp', v); } })
+      .catch(() => {});
   }, []);
 
   /* 자동 저장 (localStorage) */
