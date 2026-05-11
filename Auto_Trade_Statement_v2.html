@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>자동거래명세서</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Noto Sans KR', sans-serif;
+  background: #eef0f3;
+  min-height: 100vh;
+  padding: 20px 16px 40px;
+  color: #1a1a1a;
+}
+
+.app-wrap { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+.app-header { display: flex; align-items: center; gap: 10px; padding: 2px 0; }
+.app-header h1 { font-size: 15px; font-weight: 700; letter-spacing: 2px; }
+.app-header .hdiv { width: 1px; height: 14px; background: #c5c8cc; }
+.app-header .sub { font-size: 12px; color: #777; letter-spacing: 1px; }
+
+/* ── Control Panel ─────────── */
+.ctrl-panel { background: #fff; border-radius: 10px; border: 1px solid #e0e2e6; box-shadow: 0 1px 3px rgba(0,0,0,.06); overflow: hidden; }
+.ctrl-section { display: flex; align-items: center; gap: 8px; padding: 10px 16px; flex-wrap: wrap; }
+.ctrl-section + .ctrl-section { border-top: 1px solid #f0f0f0; }
+.ctrl-label { font-size: 11px; font-weight: 600; color: #888; letter-spacing: 1px; min-width: 52px; flex-shrink: 0; }
+.ctrl-divider { width: 1px; height: 22px; background: #e0e2e6; flex-shrink: 0; margin: 0 2px; }
+
+/* ── Buttons ───────────────── */
+.btn { padding: 7px 13px; border: none; border-radius: 6px; font-family: 'Noto Sans KR', sans-serif; font-size: 12px; font-weight: 500; cursor: pointer; transition: all .15s; white-space: nowrap; }
+.btn-primary  { background: #1a56db; color: #fff; }
+.btn-primary:hover  { background: #1447bd; }
+.btn-ghost  { background: transparent; color: #1a56db; border: 1.5px solid #1a56db; }
+.btn-ghost:hover  { background: #eff4ff; }
+.btn-soft  { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+.btn-soft:hover  { background: #e9ebee; }
+.btn-danger { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+.btn-danger:hover { background: #fecaca; }
+.btn-green { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.btn-green:hover { background: #bbf7d0; }
+
+/* ── Item Form ─────────────── */
+.item-form { display: flex; align-items: flex-end; gap: 7px; flex-wrap: wrap; }
+.field-group { display: flex; flex-direction: column; gap: 3px; }
+.field-group label { font-size: 10px; font-weight: 600; color: #999; letter-spacing: .5px; }
+.field-input, .field-select { padding: 6px 9px; border: 1.5px solid #dde0e5; border-radius: 6px; font-family: 'Noto Sans KR', sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; outline: none; transition: border-color .15s; }
+.field-input:focus, .field-select:focus { border-color: #1a56db; }
+.field-input::placeholder { color: #bbb; }
+
+/* ── Invoice ──────────────── */
+.inv-wrap { background: #fff; border-radius: 10px; border: 1px solid #e0e2e6; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 20px; overflow-x: auto; }
+.inv-tbl { border-collapse: collapse; width: 100%; min-width: 600px; table-layout: fixed; font-family: 'Noto Sans KR', sans-serif; }
+.inv-tbl td { border: 1px solid #888; padding: 4px 6px; vertical-align: middle; font-size: 12px; }
+.item-tr:hover td { background: #f6f8ff; }
+
+/* ── Delete Button (항상 표시 — 모바일 대응) ── */
+.del-btn {
+  background: none; border: none; color: #ccc; font-size: 15px;
+  cursor: pointer; padding: 0 4px; line-height: 1; vertical-align: middle;
+  transition: color .15s; flex-shrink: 0;
+}
+.del-btn:hover { color: #e53e3e; }
+
+/* ── Action Panel ──────────── */
+.action-panel { background: #fff; border-radius: 10px; border: 1px solid #e0e2e6; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 14px 20px; display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
+.btn-print { background: #1a56db; color: #fff; font-weight: 700; font-size: 14px; padding: 11px 32px; border-radius: 7px; }
+.btn-print:hover { background: #1447bd; }
+
+/* ── Toast ─────────────────── */
+.toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: #1a1a2e; color: #fff; padding: 10px 22px; border-radius: 8px; font-size: 13px; z-index: 9999; box-shadow: 0 4px 16px rgba(0,0,0,.25); pointer-events: none; animation: fadeup .2s ease; white-space: nowrap; }
+@keyframes fadeup { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+/* ── Stamp hover hint ───────── */
+.stamp-wrap { position: relative; cursor: pointer; flex-shrink: 0; }
+.stamp-wrap::after { content: '클릭 변경'; position: absolute; inset: 0; background: rgba(0,0,0,.45); color: #fff; font-size: 9px; font-weight: 600; display: flex; align-items: center; justify-content: center; border-radius: 50%; opacity: 0; transition: opacity .15s; }
+.stamp-wrap:hover::after { opacity: 1; }
+
+/* ── Modal ─────────────────── */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.modal-box { background: #fff; border-radius: 12px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 12px; border-bottom: 1px solid #eee; position: sticky; top: 0; background: #fff; z-index: 1; }
+.modal-title { font-size: 15px; font-weight: 700; }
+.modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #999; line-height: 1; padding: 0 2px; }
+.modal-close:hover { color: #333; }
+.modal-body { padding: 16px 20px 8px; }
+.modal-footer { padding: 10px 20px 16px; border-top: 1px solid #f0f0f0; display: flex; gap: 8px; justify-content: flex-end; }
+
+.form-row { margin-bottom: 10px; }
+.form-row label { display: block; font-size: 11px; font-weight: 600; color: #888; margin-bottom: 3px; }
+.form-row input { width: 100%; padding: 7px 10px; border: 1.5px solid #dde0e5; border-radius: 6px; font-size: 13px; font-family: 'Noto Sans KR', sans-serif; outline: none; }
+.form-row input:focus { border-color: #1a56db; }
+.form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.section-title { font-size: 11px; font-weight: 700; color: #888; letter-spacing: .5px; margin: 14px 0 8px; padding-bottom: 5px; border-bottom: 1px solid #f0f0f0; text-transform: uppercase; }
+
+/* ── Customer List ──────────── */
+.cust-list { display: flex; flex-direction: column; gap: 5px; max-height: 220px; overflow-y: auto; padding-right: 2px; }
+.cust-item { display: flex; align-items: center; padding: 8px 10px; background: #f8f9fa; border-radius: 6px; cursor: pointer; border: 1.5px solid transparent; gap: 8px; transition: all .12s; }
+.cust-item:hover { border-color: #1a56db; background: #f0f5ff; }
+.cust-item-info { flex: 1; min-width: 0; }
+.cust-item-name { font-size: 13px; font-weight: 600; }
+.cust-item-sub { font-size: 11px; color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cust-del { background: none; border: none; color: #ccc; cursor: pointer; font-size: 16px; flex-shrink: 0; line-height: 1; }
+.cust-del:hover { color: #e53e3e; }
+
+/* ── Catalog List ───────────── */
+.cat-list { display: flex; flex-direction: column; gap: 5px; max-height: 340px; overflow-y: auto; }
+.cat-item { display: flex; align-items: center; padding: 8px 10px; background: #f8f9fa; border-radius: 6px; gap: 8px; }
+.cat-item-name { flex: 1; font-size: 13px; font-weight: 600; }
+.cat-item-price { font-size: 12px; color: #555; white-space: nowrap; }
+.cat-item-vat { font-size: 10px; color: #888; padding: 2px 7px; background: #e5e7eb; border-radius: 10px; white-space: nowrap; }
+.cat-del { background: none; border: none; color: #ccc; cursor: pointer; font-size: 16px; line-height: 1; }
+.cat-del:hover { color: #e53e3e; }
+
+/* ── JSON Info Box ──────────── */
+.json-info { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #0369a1; margin-bottom: 12px; line-height: 1.7; }
+
+/* ── Share Modal (dark theme) ─ */
+.share-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.75); z-index: 2000; display: flex; align-items: flex-end; justify-content: center; padding: 0; }
+@media (min-width: 480px) { .share-overlay { align-items: center; padding: 16px; } }
+.share-box { background: #1c1e27; border-radius: 20px 20px 0 0; width: 100%; max-width: 420px; overflow: hidden; box-shadow: 0 -8px 40px rgba(0,0,0,.6); }
+@media (min-width: 480px) { .share-box { border-radius: 18px; box-shadow: 0 24px 80px rgba(0,0,0,.7); } }
+.share-head { background: #13151e; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,.07); }
+.share-head-title { color: #fff; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.share-head-close { background: rgba(255,255,255,.1); border: none; color: #aaa; font-size: 16px; cursor: pointer; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all .15s; }
+.share-head-close:hover { background: rgba(255,255,255,.2); color: #fff; }
+.share-preview { margin: 14px 20px 0; background: #fff; border-radius: 10px; overflow: hidden; height: 110px; display: flex; align-items: flex-start; justify-content: flex-start; }
+.share-preview img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.share-preview-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ccc; font-size: 13px; }
+.share-btns { padding: 14px 20px 0; display: flex; flex-direction: column; gap: 9px; }
+.shr-btn { width: 100%; padding: 14px 0; border: none; border-radius: 12px; font-family: 'Noto Sans KR', sans-serif; font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity .15s, transform .1s; }
+.shr-btn:hover { opacity: .92; }
+.shr-btn:active { transform: scale(.98); }
+.shr-btn:disabled { opacity: .55; cursor: not-allowed; }
+.shr-png  { background: #FFC107; color: #1a1201; }
+.shr-clip { background: #2563EB; color: #fff; }
+.shr-row  { display: flex; gap: 9px; }
+.shr-row .shr-btn { flex: 1; }
+.shr-email { background: #374151; color: #e5e7eb; }
+.shr-tg    { background: #229ED9; color: #fff; }
+.shr-kakao { background: #FEE500; color: #191919; }
+.share-tip { color: #6b7280; font-size: 11px; text-align: center; padding: 10px 20px 4px; line-height: 1.6; }
+.share-close-btn { display: block; width: calc(100% - 40px); margin: 10px 20px 18px; padding: 13px 0; background: rgba(255,255,255,.07); border: none; border-radius: 12px; color: #9ca3af; font-family: 'Noto Sans KR', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s; }
+.share-close-btn:hover { background: rgba(255,255,255,.12); color: #d1d5db; }
+.shr-status { font-size: 11px; text-align: center; padding: 4px 0 0; min-height: 18px; }
+.shr-status.ok  { color: #34d399; }
+.shr-status.err { color: #f87171; }
+
+/* ── Print ─────────────────── */
+@media print {
+  body { background: white; padding: 0; }
+  .ctrl-panel, .app-header, .action-panel { display: none !important; }
+  .inv-wrap { border: none; box-shadow: none; padding: 0; overflow: visible; }
+  .del-btn { display: none !important; }
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+/* ══════════════════════════════════════════
+   IndexedDB helpers (도장 전용)
+══════════════════════════════════════════ */
+async function openDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('zytn_v1', 1);
+    r.onupgradeneeded = e => e.target.result.createObjectStore('kv');
+    r.onsuccess  = e => res(e.target.result);
+    r.onerror    = () => rej(r.error);
+  });
+}
+async function idbSet(key, val) {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').put(val, key);
+    tx.oncomplete = res;
+    tx.onerror    = () => rej(tx.error);
+  });
+}
+async function idbGet(key) {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readonly');
+    const r  = tx.objectStore('kv').get(key);
+    r.onsuccess = () => res(r.result ?? null);
+    r.onerror   = () => rej(r.error);
+  });
+}
+
+/* ══════════════════════════════════════════
+   localStorage helpers
+══════════════════════════════════════════ */
+const loadLS = (k, fb) => {
+  try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; }
+  catch { return fb; }
+};
+const saveLS = (k, v) => {
+  try { localStorage.setItem(k, JSON.stringify(v)); }
+  catch (e) { console.warn('localStorage 저장 실패', e); }
+};
+
+/* ══════════════════════════════════════════
+   ★ 연동 설정 — 여기에 직접 입력
+══════════════════════════════════════════ */
+const CONFIG = {
+  tgToken:  '8470986147:AAGvqLfJmaoYdLPGIkzactAT14tQSTEm_50',
+  tgChatId: '8632713094',
+  kakaoUrl: 'https://open.kakao.com/o/sxAt3nti',
+};
+
+/* ══════════════════════════════════════════
+   기본값
+══════════════════════════════════════════ */
+const DEF_SUPPLIER = {
+  regNo: '348-86-03276',
+  name:  '주식회사 지튼(ZYTN)',
+  ceo:   '김종길',
+  address: '경기도 김포시 김포한강9로75번길 190, 7층715',
+  bizType: '제조업, 도소매업',
+  bizItem: '금속가구제조업, 서비스업',
+};
+const DEF_CUSTOMER = { regNo: '', name: '', ceo: '', address: '', bizType: '', bizItem: '' };
+const DEF_CATALOG = [
+  { id: 1, name: '중심봉',      unit: '개', price: 15000, vatIncluded: false },
+  { id: 2, name: '중심봉+럭킹', unit: '개', price: 35000, vatIncluded: false },
+  { id: 3, name: '등받이 수선', unit: '개', price: 25000, vatIncluded: false },
+  { id: 4, name: '출장비',      unit: '',   price: 50000, vatIncluded: false },
+];
+const DEF_ITEMS = [
+  { id: 1, name: '중심봉',      unit: '개', quantity: 8, price: 15000, vatIncluded: false },
+  { id: 2, name: '중심봉+럭킹', unit: '개', quantity: 3, price: 35000, vatIncluded: false },
+  { id: 3, name: '등받이 수선', unit: '개', quantity: 1, price: 25000, vatIncluded: false },
+  { id: 4, name: '출장비',      unit: '',   quantity: 1, price: 50000, vatIncluded: false },
+];
+
+/* ══════════════════════════════════════════
+   유틸
+══════════════════════════════════════════ */
+const fmt      = n  => (n == null || n === '') ? '' : Number(n).toLocaleString('ko-KR');
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const isoToKr  = iso => { try { const [y,m,d] = iso.split('-'); return `${y}년 ${+m}월 ${+d}일`; } catch { return iso; } };
+
+/* ══════════════════════════════════════════
+   테이블 스타일 토큰
+══════════════════════════════════════════ */
+const OB  = '2px solid #1a1a1a';
+const SB  = '1.5px solid #555';
+const IB  = '1px solid #888';
+const lbl = { background:'#f5f5f5', textAlign:'center', fontSize:10, fontWeight:600, letterSpacing:1, padding:'3px 5px', lineHeight:1.4 };
+const val = { padding:'4px 8px', fontSize:11, textAlign:'left' };
+const hdr = { background:'#efefef', textAlign:'center', fontSize:11, fontWeight:600, letterSpacing:2, padding:'5px 4px' };
+const dat = { textAlign:'center', padding:'5px 6px', fontSize:12 };
+const vatS = { background:'#fef9ea', textAlign:'center', padding:'5px 6px', fontSize:12 };
+const totS = { background:'#f5f5f5', textAlign:'center', padding:'5px 6px', fontSize:12, fontWeight:700, borderTop:SB };
+const emp  = { height: 30 };
+const vLbl = { writingMode:'vertical-rl', textOrientation:'upright', fontSize:11, fontWeight:700, textAlign:'center', background:'#f8f8f8', padding:'10px 3px' };
+const CS   = { item:6, unit:1, qty:2, price:2, sup:3, vat:2, tot:8 };
+
+/* ══════════════════════════════════════════
+   공유 Modal (다크 테마)
+══════════════════════════════════════════ */
+function ShareModal({ onClose }) {
+  const [preview,  setPreview]  = useState(null);
+  const [busy,     setBusy]     = useState(false);
+  const [statusMsg, setStatus]  = useState({ text:'', type:'' });
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  /* 미리보기 생성 */
+  useEffect(() => {
+    const el = document.getElementById('inv-doc');
+    if (!el || typeof html2canvas === 'undefined') return;
+    html2canvas(el, { scale: 0.5, backgroundColor: '#ffffff', logging: false, useCORS: true })
+      .then(c => setPreview(c.toDataURL('image/jpeg', 0.7)))
+      .catch(() => {});
+  }, []);
+
+  async function capture(scale = 2) {
+    const el = document.getElementById('inv-doc');
+    if (!el) throw new Error('요소 없음');
+    return html2canvas(el, { scale, backgroundColor: '#ffffff', useCORS: true, logging: false });
+  }
+
+  function toast(text, type = 'ok') {
+    setStatus({ text, type });
+    setTimeout(() => setStatus({ text:'', type:'' }), 3000);
+  }
+
+  async function savePNG() {
+    setBusy(true);
+    try {
+      const canvas = await capture(2);
+      const link = document.createElement('a');
+      const today = new Date().toLocaleDateString('ko-KR').replace(/\. /g,'-').replace('.','');
+      link.download = `거래명세서_${today}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      toast('✅ PNG 저장 완료');
+    } catch { toast('❌ 저장 실패', 'err'); }
+    setBusy(false);
+  }
+
+  async function copyClipboard() {
+    setBusy(true);
+    try {
+      const canvas = await capture(2);
+      await new Promise((res, rej) => {
+        canvas.toBlob(async blob => {
+          try {
+            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            res();
+          } catch(e) { rej(e); }
+        }, 'image/png');
+      });
+      toast('✅ 클립보드에 복사됨 — 카톡/메일에 붙여넣기 하세요');
+    } catch { toast('❌ 클립보드 복사 실패 (HTTPS 필요)', 'err'); }
+    setBusy(false);
+  }
+
+  function openEmail() {
+    window.location.href = 'mailto:?subject=거래명세서&body=안녕하세요%2C%20거래명세서를%20보내드립니다.';
+  }
+
+  /* 텔레그램 Bot API — PNG 파일 직접 전송 */
+  async function sendTelegram() {
+    if (!CONFIG.tgToken || !CONFIG.tgChatId) {
+      toast('❌ CONFIG에 tgToken / tgChatId를 입력하세요', 'err'); return;
+    }
+    setBusy(true);
+    try {
+      const canvas = await capture(2);
+      canvas.toBlob(async blob => {
+        try {
+          const fd = new FormData();
+          fd.append('chat_id', CONFIG.tgChatId);
+          fd.append('photo', blob, '거래명세서.png');
+          const res  = await fetch(`https://api.telegram.org/bot${CONFIG.tgToken}/sendPhoto`, { method:'POST', body:fd });
+          const data = await res.json();
+          if (data.ok) toast('✅ 텔레그램 전송 완료');
+          else toast(`❌ 전송 실패: ${data.description}`, 'err');
+        } catch { toast('❌ 텔레그램 전송 실패 (네트워크 오류)', 'err'); }
+        setBusy(false);
+      }, 'image/png');
+    } catch { setBusy(false); toast('❌ 이미지 생성 실패', 'err'); }
+  }
+
+  /* 카카오 오픈채팅방 — 이미지 클립보드 복사 후 채팅방 오픈 */
+  async function shareKakao() {
+    if (!CONFIG.kakaoUrl) {
+      toast('❌ CONFIG에 kakaoUrl을 입력하세요', 'err'); return;
+    }
+    setBusy(true);
+    try {
+      const canvas = await capture(2);
+      canvas.toBlob(async blob => {
+        try {
+          /* 1) 클립보드에 이미지 복사 */
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          /* 2) 오픈채팅방 열기 */
+          window.open(CONFIG.kakaoUrl, '_blank');
+          toast('✅ 이미지 복사됨 → 채팅방에서 Ctrl+V / 붙여넣기');
+        } catch {
+          /* 클립보드 실패 시 채팅방만 열기 */
+          window.open(CONFIG.kakaoUrl, '_blank');
+          toast('⚠️ 클립보드 복사 실패 — PNG 저장 후 직접 첨부하세요', 'err');
+        }
+        setBusy(false);
+      }, 'image/png');
+    } catch { setBusy(false); toast('❌ 이미지 생성 실패', 'err'); }
+  }
+
+  return (
+    <div className="share-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="share-box">
+
+        {/* 헤더 */}
+        <div className="share-head">
+          <span className="share-head-title">🏷️ 발주서 공유</span>
+          <button className="share-head-close" onClick={onClose}>✕</button>
+        </div>
+
+        {/* 미리보기 */}
+        <div className="share-preview">
+          {preview
+            ? <img src={preview} alt="미리보기" />
+            : <span className="share-preview-placeholder">미리보기 생성 중…</span>
+          }
+        </div>
+
+        {/* 버튼 */}
+        <div className="share-btns">
+          <button className="shr-btn shr-png" onClick={savePNG} disabled={busy}>
+            📷 PNG 저장
+          </button>
+          <button className="shr-btn shr-clip" onClick={copyClipboard} disabled={busy}>
+            📋 클립보드 복사 → 카톡/메일에 붙여넣기
+          </button>
+          <div className="shr-row">
+            <button className="shr-btn shr-email" onClick={openEmail}    disabled={busy}>📧 이메일</button>
+            <button className="shr-btn shr-tg"    onClick={sendTelegram} disabled={busy}>✈️ 텔레그램 전송</button>
+          </div>
+          {isMobile && (
+            <button className="shr-btn shr-kakao" onClick={shareKakao} disabled={busy}>
+              💬 카카오톡 (오픈채팅방)
+            </button>
+          )}
+        </div>
+
+        {/* 상태 메시지 */}
+        <p className={`shr-status ${statusMsg.type}`}>{statusMsg.text}</p>
+
+        {/* 팁 */}
+        <p className="share-tip">
+          💡 클립보드 복사 후 카카오톡/메일에 Ctrl+V 붙여넣기
+        </p>
+
+        <button className="share-close-btn" onClick={onClose}>닫기</button>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   공통 Modal 래퍼
+══════════════════════════════════════════ */
+function Modal({ title, onClose, children, footer }) {
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box">
+        <div className="modal-head">
+          <span className="modal-title">{title}</span>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">{children}</div>
+        {footer && <div className="modal-footer">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   공급자 모달
+══════════════════════════════════════════ */
+function SupplierModal({ supplier, onSave, onClose }) {
+  const [f, setF] = useState({ ...supplier });
+  const s = (k, v) => setF(p => ({ ...p, [k]: v }));
+
+  return (
+    <Modal
+      title="🏢 공급자 정보 설정"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-soft" onClick={onClose}>취소</button>
+          <button className="btn btn-primary" onClick={() => onSave(f)}>저장</button>
+        </>
+      }
+    >
+      <div className="form-row">
+        <label>사업자등록번호</label>
+        <input value={f.regNo} onChange={e => s('regNo', e.target.value)} placeholder="000-00-00000" />
+      </div>
+      <div className="form-2col">
+        <div className="form-row">
+          <label>상호(법인명)</label>
+          <input value={f.name} onChange={e => s('name', e.target.value)} />
+        </div>
+        <div className="form-row">
+          <label>대표자(성명)</label>
+          <input value={f.ceo} onChange={e => s('ceo', e.target.value)} />
+        </div>
+      </div>
+      <div className="form-row">
+        <label>사업장 주소</label>
+        <input value={f.address} onChange={e => s('address', e.target.value)} />
+      </div>
+      <div className="form-2col">
+        <div className="form-row">
+          <label>업태</label>
+          <input value={f.bizType} onChange={e => s('bizType', e.target.value)} />
+        </div>
+        <div className="form-row">
+          <label>종목</label>
+          <input value={f.bizItem} onChange={e => s('bizItem', e.target.value)} />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════
+   거래처 모달 (선택 + 저장 + 삭제)
+══════════════════════════════════════════ */
+function CustomerModal({ customer, customers, onApply, onSaveToList, onDeleteFromList, onClose }) {
+  const [f, setF] = useState({ ...customer });
+  const s = (k, v) => setF(p => ({ ...p, [k]: v }));
+
+  return (
+    <Modal
+      title="👤 거래처 관리"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-soft" onClick={onClose}>취소</button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              if (!f.name.trim()) { alert('거래처명을 입력하세요'); return; }
+              onSaveToList({ ...f });
+            }}
+          >
+            목록에 저장
+          </button>
+          <button className="btn btn-primary" onClick={() => onApply({ ...f })}>적용</button>
+        </>
+      }
+    >
+      <div className="form-row">
+        <label>사업자등록번호</label>
+        <input value={f.regNo} onChange={e => s('regNo', e.target.value)} placeholder="000-00-00000" />
+      </div>
+      <div className="form-2col">
+        <div className="form-row">
+          <label>상호(법인명)</label>
+          <input value={f.name} onChange={e => s('name', e.target.value)} placeholder="거래처명" />
+        </div>
+        <div className="form-row">
+          <label>대표자(성명)</label>
+          <input value={f.ceo} onChange={e => s('ceo', e.target.value)} />
+        </div>
+      </div>
+      <div className="form-row">
+        <label>사업장 주소</label>
+        <input value={f.address} onChange={e => s('address', e.target.value)} />
+      </div>
+      <div className="form-2col">
+        <div className="form-row">
+          <label>업태</label>
+          <input value={f.bizType} onChange={e => s('bizType', e.target.value)} />
+        </div>
+        <div className="form-row">
+          <label>종목</label>
+          <input value={f.bizItem} onChange={e => s('bizItem', e.target.value)} />
+        </div>
+      </div>
+
+      {customers.length > 0 && (
+        <>
+          <div className="section-title">저장된 거래처 ({customers.length}개) — 클릭하면 불러오기</div>
+          <div className="cust-list">
+            {customers.map(c => (
+              <div key={c.id} className="cust-item" onClick={() => setF({ ...c })}>
+                <div className="cust-item-info">
+                  <div className="cust-item-name">{c.name}</div>
+                  <div className="cust-item-sub">{[c.regNo, c.bizType, c.bizItem].filter(Boolean).join(' · ')}</div>
+                </div>
+                <button
+                  className="cust-del"
+                  onClick={e => { e.stopPropagation(); onDeleteFromList(c.id); }}
+                  title="삭제"
+                >✕</button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════
+   카탈로그 모달
+══════════════════════════════════════════ */
+function CatalogModal({ catalog, onDelete, onClose }) {
+  return (
+    <Modal
+      title={`📋 카탈로그 관리 (${catalog.length}개)`}
+      onClose={onClose}
+      footer={<button className="btn btn-soft" onClick={onClose}>닫기</button>}
+    >
+      {catalog.length === 0
+        ? <p style={{ textAlign:'center', color:'#aaa', padding:'20px 0', fontSize:13 }}>저장된 품목이 없습니다</p>
+        : (
+          <div className="cat-list">
+            {catalog.map(c => (
+              <div key={c.id} className="cat-item">
+                <span className="cat-item-name">{c.name}</span>
+                {c.unit && <span style={{ fontSize:11, color:'#aaa' }}>{c.unit}</span>}
+                <span className="cat-item-price">₩{fmt(c.price)}</span>
+                <span className="cat-item-vat">{c.vatIncluded ? '부가세 포함' : '부가세 별도'}</span>
+                <button className="cat-del" onClick={() => onDelete(c.id)} title="삭제">✕</button>
+              </div>
+            ))}
+          </div>
+        )
+      }
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════
+   JSON 모달 (내보내기 / 가져오기 안내)
+══════════════════════════════════════════ */
+function JsonModal({ onExport, onClose, importInputRef }) {
+  return (
+    <Modal
+      title="📂 JSON 데이터 동기화"
+      onClose={onClose}
+      footer={<button className="btn btn-soft" onClick={onClose}>닫기</button>}
+    >
+      <div className="json-info">
+        <strong>모바일 ↔ PC 동기화 방법</strong><br/>
+        1. PC에서 <strong>내보내기</strong> → JSON 파일 저장<br/>
+        2. 카카오톡 / 메일로 파일 전송<br/>
+        3. 모바일에서 <strong>가져오기</strong> → 파일 선택
+      </div>
+
+      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+        <button
+          className="btn btn-green"
+          style={{ padding:'11px 0', fontSize:14, fontWeight:700 }}
+          onClick={() => { onExport(); onClose(); }}
+        >
+          📤 내보내기 (JSON 파일 다운로드)
+        </button>
+
+        <label
+          className="btn btn-ghost"
+          style={{ padding:'11px 0', fontSize:14, fontWeight:700, textAlign:'center', cursor:'pointer', display:'block' }}
+        >
+          📥 가져오기 (JSON 파일 선택)
+          <input ref={importInputRef} type="file" accept=".json,application/json" style={{ display:'none' }} />
+        </label>
+      </div>
+
+      <p style={{ fontSize:11, color:'#aaa', marginTop:12, lineHeight:1.6 }}>
+        * 가져오기 시 기존 데이터 덮어쓰기 여부를 확인합니다<br/>
+        * 도장 이미지는 JSON에 포함되지 않습니다
+      </p>
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════
+   Control Panel
+══════════════════════════════════════════ */
+function ControlPanel({
+  items, setItems, catalog, setCatalog, date, setDate,
+  onSupplierClick, onCustomerClick, onStampClick, onJsonClick
+}) {
+  const [form, setForm]     = useState({ name:'', unit:'', quantity:'', price:'', vatIncluded:'false' });
+  const [selectedId, setSel] = useState('');
+  const sf = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  function handleCatalogSelect(e) {
+    const v = e.target.value;
+    setSel(v);
+    if (v === '__new__') { setForm(p => ({ ...p, name:'', unit:'', price:'', vatIncluded:'false' })); return; }
+    const found = catalog.find(c => String(c.id) === v);
+    if (found) setForm(p => ({ ...p, name: found.name, unit: found.unit||'', price: String(found.price), vatIncluded: String(found.vatIncluded) }));
+  }
+
+  function addItem() {
+    if (!form.name.trim()) return;
+    setItems(prev => [...prev, {
+      id: Date.now(), name: form.name.trim(), unit: form.unit.trim(),
+      quantity: Number(form.quantity)||0, price: Number(form.price)||0,
+      vatIncluded: form.vatIncluded === 'true'
+    }]);
+    setForm(p => ({ ...p, quantity: '' }));
+  }
+
+  function saveToCatalog() {
+    if (!form.name.trim() || !form.price) return;
+    const entry = { id: Date.now(), name: form.name.trim(), unit: form.unit.trim(), price: Number(form.price)||0, vatIncluded: form.vatIncluded === 'true' };
+    const updated = [...catalog, entry];
+    setCatalog(updated);
+    saveLS('zytn_catalog', updated);
+  }
+
+  return (
+    <div className="ctrl-panel">
+
+      {/* ── Row 1: 날짜 + 설정 버튼 + JSON ── */}
+      <div className="ctrl-section">
+        <span className="ctrl-label">날 짜</span>
+        <input
+          type="date"
+          className="field-input"
+          style={{ width: 145 }}
+          value={date}
+          onChange={e => setDate(e.target.value)}
+        />
+        <div className="ctrl-divider" />
+        <button className="btn btn-soft" onClick={onSupplierClick}>🏢 공급자</button>
+        <button className="btn btn-soft" onClick={onCustomerClick}>👤 거래처</button>
+        <button className="btn btn-soft" onClick={onStampClick}>🔖 도장</button>
+        <div style={{ flex: 1 }} />
+        <button className="btn btn-green" onClick={onJsonClick}>⇅ JSON 동기화</button>
+      </div>
+
+      {/* ── Row 2: 품목 입력 ── */}
+      <div className="ctrl-section">
+        <span className="ctrl-label">품 목</span>
+        <div className="item-form">
+          {/* 카탈로그 선택 */}
+          <div className="field-group">
+            <label>품목 선택</label>
+            <select className="field-select" style={{ width: 150 }} value={selectedId} onChange={handleCatalogSelect}>
+              <option value="">-- 선택 --</option>
+              {catalog.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+              <option value="__new__">✏️ 직접 입력</option>
+            </select>
+          </div>
+
+          {/* 직접 입력 시 품목명 필드 */}
+          {selectedId === '__new__' && (
+            <div className="field-group">
+              <label>품목명</label>
+              <input className="field-input" style={{ width: 120 }} value={form.name}
+                onChange={e => sf('name', e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addItem()}
+                placeholder="품목명" />
+            </div>
+          )}
+
+          <div className="field-group">
+            <label>단위</label>
+            <input className="field-input" style={{ width: 46 }} value={form.unit}
+              onChange={e => sf('unit', e.target.value)} placeholder="EA" />
+          </div>
+          <div className="field-group">
+            <label>수량</label>
+            <input className="field-input" style={{ width: 62 }} type="number" min="0"
+              value={form.quantity} onChange={e => sf('quantity', e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addItem()} placeholder="0" />
+          </div>
+          <div className="field-group">
+            <label>단가</label>
+            <input className="field-input" style={{ width: 90 }} type="number" min="0"
+              value={form.price} onChange={e => sf('price', e.target.value)} placeholder="0" />
+          </div>
+          <div className="field-group">
+            <label>부가세</label>
+            <select className="field-select" value={form.vatIncluded} onChange={e => sf('vatIncluded', e.target.value)}>
+              <option value="false">별도(+10%)</option>
+              <option value="true">포함</option>
+            </select>
+          </div>
+
+          <button className="btn btn-primary" style={{ alignSelf:'flex-end', marginBottom:1 }} onClick={addItem}>+ 추가</button>
+
+          {selectedId === '__new__' && form.name.trim() && form.price && (
+            <button className="btn btn-soft" style={{ alignSelf:'flex-end', marginBottom:1 }}
+              onClick={saveToCatalog} title="카탈로그에 저장">
+              💾 저장
+            </button>
+          )}
+        </div>
+
+        <div style={{ flex: 1 }} />
+        <button className="btn btn-danger"
+          onClick={() => { if (confirm('품목을 모두 지울까요?')) setItems([]); }}>
+          🗑️ 초기화
+        </button>
+      </div>
+
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   Invoice Doc
+══════════════════════════════════════════ */
+function InvoiceDoc({ items, date, supplier, customer, stamp, remark, onRemarkChange, onRemove, onStampClick }) {
+  const supplyTotal = items.reduce((s, it) => s + it.quantity * it.price, 0);
+  const vatAmount   = items.filter(it => !it.vatIncluded).reduce((s, it) => s + Math.round(it.quantity * it.price * 0.1), 0);
+  const grandTotal  = supplyTotal + vatAmount;
+  const grandQty    = items.reduce((s, it) => s + it.quantity, 0);
+  const EMPTY       = Math.max(0, 12 - items.length);
+  const krDate      = isoToKr(date);
+
+  return (
+    <div id="inv-doc">
+      <table className="inv-tbl">
+        <colgroup>{Array(24).fill(null).map((_, i) => <col key={i} />)}</colgroup>
+        <tbody>
+
+          {/* ══ 제목 행 1 ══ */}
+          <tr>
+            <td colSpan={3} style={{ ...lbl, borderLeft:OB, borderTop:OB, borderBottom:IB, borderRight:IB, padding:'7px 8px', fontSize:11, letterSpacing:2 }}>
+              거 래 일 자
+            </td>
+            <td colSpan={21} rowSpan={2} style={{ borderLeft:IB, borderRight:OB, borderTop:OB, borderBottom:SB, textAlign:'center', verticalAlign:'middle', position:'relative', padding:'14px 20px' }}>
+              <div style={{ fontSize:22, fontWeight:700, letterSpacing:8 }}>입출고증(거래명세서)</div>
+              <div style={{ position:'absolute', bottom:6, right:12, fontSize:10, color:'#666' }}>(공급받는자 보관용)</div>
+            </td>
+          </tr>
+
+          {/* ══ 제목 행 2 (날짜) ══ */}
+          <tr>
+            <td colSpan={3} style={{ borderLeft:OB, borderTop:IB, borderRight:IB, borderBottom:SB, textAlign:'center', fontSize:11, color:'#444', padding:'5px 8px' }}>
+              {krDate}
+            </td>
+          </tr>
+
+          {/* ══ 등록번호 ══ */}
+          <tr>
+            <td colSpan={1} rowSpan={4} style={{ ...vLbl, borderLeft:OB, borderRight:IB, borderTop:IB, borderBottom:SB, letterSpacing:5 }}>공&nbsp;&nbsp;급&nbsp;&nbsp;자</td>
+            <td colSpan={2} style={{ ...lbl, borderLeft:IB, borderTop:IB, borderRight:IB, borderBottom:IB, height:52 }}>등록번호</td>
+            <td colSpan={9} style={{ ...val, borderLeft:IB, borderTop:IB, borderRight:IB, borderBottom:IB, fontWeight:700, letterSpacing:2, fontSize:13, textAlign:'center' }}>{supplier.regNo}</td>
+            <td colSpan={1} rowSpan={4} style={{ ...vLbl, borderLeft:SB, borderRight:IB, borderTop:IB, borderBottom:SB, letterSpacing:3 }}>공&nbsp;급&nbsp;받&nbsp;는&nbsp;자</td>
+            <td colSpan={2} style={{ ...lbl, borderLeft:IB, borderTop:IB, borderRight:IB, borderBottom:IB }}>등록번호</td>
+            <td colSpan={9} style={{ ...val, borderLeft:IB, borderTop:IB, borderRight:OB, borderBottom:IB }}>{customer.regNo}</td>
+          </tr>
+
+          {/* ══ 상호 ══ */}
+          <tr>
+            <td colSpan={2} style={{ ...lbl, height:52 }}>상 호<br/>(법인명)</td>
+            <td colSpan={5} style={val}>{supplier.name}</td>
+            <td colSpan={1} style={lbl}>성 명</td>
+            <td colSpan={3} style={{ ...val, padding:'3px 6px' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
+                <span>{supplier.ceo}</span>
+                <div className="stamp-wrap" onClick={onStampClick} title="도장 이미지 등록/변경">
+                  {stamp
+                    ? <img src={stamp} alt="도장" style={{ width:50, height:50, objectFit:'contain', display:'block' }} />
+                    : <div style={{ width:50, height:50, borderRadius:'50%', border:'2px solid #c41e1e', color:'#c41e1e', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, lineHeight:1.3, textAlign:'center' }}>
+                        <span>인</span><span>감</span>
+                      </div>
+                  }
+                </div>
+              </div>
+            </td>
+            <td colSpan={2} style={lbl}>상 호<br/>(법인명)</td>
+            <td colSpan={5} style={val}>{customer.name}</td>
+            <td colSpan={1} style={lbl}>성 명</td>
+            <td colSpan={3} style={{ ...val, borderRight:OB }}>{customer.ceo}</td>
+          </tr>
+
+          {/* ══ 주소 ══ */}
+          <tr>
+            <td colSpan={2} style={{ ...lbl, height:52 }}>사 업 장<br/>주 소</td>
+            <td colSpan={9} style={{ ...val, fontSize:10 }}>{supplier.address}</td>
+            <td colSpan={2} style={lbl}>사 업 장<br/>주 소</td>
+            <td colSpan={9} style={{ ...val, fontSize:10, borderRight:OB }}>{customer.address}</td>
+          </tr>
+
+          {/* ══ 업태/종목 ══ */}
+          <tr>
+            <td colSpan={2} style={{ ...lbl, borderBottom:SB, height:52 }}>업 태</td>
+            <td colSpan={5} style={{ ...val, borderBottom:SB }}>{supplier.bizType}</td>
+            <td colSpan={1} style={{ ...lbl, borderBottom:SB }}>종 목</td>
+            <td colSpan={3} style={{ ...val, borderBottom:SB, fontSize:10 }}>{supplier.bizItem}</td>
+            <td colSpan={2} style={{ ...lbl, borderBottom:SB }}>업 태</td>
+            <td colSpan={5} style={{ ...val, borderBottom:SB }}>{customer.bizType}</td>
+            <td colSpan={1} style={{ ...lbl, borderBottom:SB }}>종 목</td>
+            <td colSpan={3} style={{ ...val, borderBottom:SB, borderRight:OB }}>{customer.bizItem}</td>
+          </tr>
+
+          {/* ══ 품목 헤더 ══ */}
+          <tr>
+            <td colSpan={CS.item}  style={{ ...hdr, borderLeft:OB }}>품 목</td>
+            <td colSpan={CS.unit}  style={hdr}>단위</td>
+            <td colSpan={CS.qty}   style={hdr}>수 량</td>
+            <td colSpan={CS.price} style={hdr}>단 가</td>
+            <td colSpan={CS.sup}   style={hdr}>공급가액</td>
+            <td colSpan={CS.vat}   style={{ ...hdr, fontSize:10 }}>세 액</td>
+            <td colSpan={CS.tot}   style={{ ...hdr, borderRight:OB }}>합 계</td>
+          </tr>
+
+          {/* ══ 품목 행 ══ */}
+          {items.map(it => {
+            const supply  = it.quantity * it.price;
+            const rowVat  = it.vatIncluded ? null : Math.round(supply * 0.1);
+            const rowTot  = supply + (rowVat ?? 0);
+            return (
+              <tr key={it.id} className="item-tr">
+                <td colSpan={CS.item} style={{ ...dat, textAlign:'left', paddingLeft:8, borderLeft:OB }}>
+                  <span style={{ marginRight:4 }}>{it.name}</span>
+                  <button className="del-btn" onClick={() => onRemove(it.id)} title="삭제">×</button>
+                </td>
+                <td colSpan={CS.unit}  style={dat}>{it.unit}</td>
+                <td colSpan={CS.qty}   style={dat}>{fmt(it.quantity)}</td>
+                <td colSpan={CS.price} style={dat}>{fmt(it.price)}</td>
+                <td colSpan={CS.sup}   style={dat}>{fmt(supply)}</td>
+                <td colSpan={CS.vat}   style={{ ...vatS, fontSize:rowVat == null ? 10 : 12, color: rowVat == null ? '#888' : '#1a1a1a' }}>
+                  {rowVat == null ? '포함' : fmt(rowVat)}
+                </td>
+                <td colSpan={CS.tot}   style={{ ...dat, borderRight:OB }}>{fmt(rowTot)}</td>
+              </tr>
+            );
+          })}
+
+          {/* ══ 빈 행 (최소 12행) ══ */}
+          {Array.from({ length: EMPTY }).map((_, i) => (
+            <tr key={`e${i}`}>
+              <td colSpan={CS.item}  style={{ ...emp, borderLeft:OB }}></td>
+              <td colSpan={CS.unit}  style={emp}></td>
+              <td colSpan={CS.qty}   style={emp}></td>
+              <td colSpan={CS.price} style={emp}></td>
+              <td colSpan={CS.sup}   style={emp}></td>
+              <td colSpan={CS.vat}   style={emp}></td>
+              <td colSpan={CS.tot}   style={{ ...emp, borderRight:OB }}></td>
+            </tr>
+          ))}
+
+          {/* ══ 합계 행 ══ */}
+          <tr>
+            <td colSpan={CS.item}  style={{ ...totS, textAlign:'center', letterSpacing:4, borderLeft:OB }}>합 계</td>
+            <td colSpan={CS.unit}  style={totS}></td>
+            <td colSpan={CS.qty}   style={totS}>{fmt(grandQty)}</td>
+            <td colSpan={CS.price} style={totS}></td>
+            <td colSpan={CS.sup}   style={totS}>{fmt(supplyTotal)}</td>
+            <td colSpan={CS.vat}   style={{ ...totS, background:'#fef3c7' }}>{vatAmount > 0 ? fmt(vatAmount) : ''}</td>
+            <td colSpan={CS.tot}   style={{ ...totS, borderRight:OB }}>{fmt(grandTotal)}</td>
+          </tr>
+
+          {/* ══ 비고 ══ */}
+          <tr>
+            <td colSpan={3} style={{ ...lbl, borderLeft:OB, borderTop:IB, borderBottom:IB, borderRight:IB, letterSpacing:3, padding:'6px 5px' }}>비 고</td>
+            <td colSpan={21} style={{ borderLeft:IB, borderTop:IB, borderBottom:IB, borderRight:OB, padding:'5px 10px' }}>
+              <input
+                value={remark}
+                onChange={e => onRemarkChange(e.target.value)}
+                style={{ width:'100%', border:'none', outline:'none', fontFamily:'Noto Sans KR, sans-serif', fontSize:12, background:'transparent', color:'#1a1a1a' }}
+              />
+            </td>
+          </tr>
+
+          {/* ══ 인수자 ══ */}
+          <tr style={{ height: 52 }}>
+            <td colSpan={18} style={{ borderLeft:OB, borderBottom:OB, borderTop:IB, borderRight:IB }}></td>
+            <td colSpan={2}  style={{ borderLeft:IB, borderBottom:OB, borderTop:IB, borderRight:IB, textAlign:'center', fontSize:12, fontWeight:600, letterSpacing:3 }}>인 수 자</td>
+            <td colSpan={4}  style={{ borderLeft:IB, borderBottom:OB, borderTop:IB, borderRight:OB }}></td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   App (메인)
+══════════════════════════════════════════ */
+function App() {
+  const [items,     setItems]     = useState(() => loadLS('zytn_items',     DEF_ITEMS));
+  const [supplier,  setSupplier]  = useState(() => loadLS('zytn_supplier',  DEF_SUPPLIER));
+  const [customer,  setCustomer]  = useState(() => loadLS('zytn_customer',  DEF_CUSTOMER));
+  const [customers, setCustomers] = useState(() => loadLS('zytn_customers', []));
+  const [catalog,   setCatalog]   = useState(() => loadLS('zytn_catalog',   DEF_CATALOG));
+  const [stamp,     setStamp]     = useState(null);
+  const [date,      setDate]      = useState(todayISO);
+  const [remark,    setRemark]    = useState(() => loadLS('zytn_remark', '입금계좌안내 : 국민은행 282437-04-004633 주식회사 지튼'));
+  const [modal,     setModal]     = useState(null); // 'supplier'|'customer'|'catalog'|'json'
+  const [toast,     setToast]     = useState(null);
+
+  const stampRef      = useRef(null);
+  const importInputRef = useRef(null);
+
+  /* 도장 → IndexedDB에서 로드 */
+  useEffect(() => {
+    idbGet('stamp').then(v => { if (v) setStamp(v); }).catch(() => {});
+  }, []);
+
+  /* 자동 저장 (localStorage) */
+  useEffect(() => { saveLS('zytn_items',     items);     }, [items]);
+  useEffect(() => { saveLS('zytn_supplier',  supplier);  }, [supplier]);
+  useEffect(() => { saveLS('zytn_customer',  customer);  }, [customer]);
+  useEffect(() => { saveLS('zytn_customers', customers); }, [customers]);
+  useEffect(() => { saveLS('zytn_catalog',   catalog);   }, [catalog]);
+  useEffect(() => { saveLS('zytn_remark',    remark);    }, [remark]);
+
+  /* JSON 가져오기 이벤트 */
+  useEffect(() => {
+    const input = importInputRef.current;
+    if (!input) return;
+    const handler = async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      /* 트랜잭션: 파싱 실패 시 기존 데이터 유지 */
+      let data;
+      try {
+        const text = await file.text();
+        data = JSON.parse(text);
+        if (!data.version || !data.catalog) throw new Error('형식 오류');
+      } catch {
+        showToast('❌ 가져오기 실패 — 잘못된 파일 형식 (기존 데이터 유지)');
+        e.target.value = '';
+        return;
+      }
+
+      const msg = [
+        `공급자: ${data.supplier?.name || '없음'}`,
+        `카탈로그 품목: ${data.catalog?.length ?? 0}개`,
+        `거래처 목록: ${data.customers?.length ?? 0}개`,
+        `현재 명세서 품목: ${data.currentItems?.length ?? 0}개`,
+      ].join('\n');
+
+      if (!confirm(`다음 데이터를 가져올까요?\n\n${msg}\n\n기존 데이터는 덮어쓰입니다.`)) {
+        e.target.value = '';
+        return;
+      }
+
+      if (data.supplier)     setSupplier(data.supplier);
+      if (data.catalog)      setCatalog(data.catalog);
+      if (data.customers)    setCustomers(data.customers);
+      if (data.customer)     setCustomer(data.customer);
+      if (data.currentItems) setItems(data.currentItems);
+      if (data.remark != null) setRemark(data.remark);
+
+      showToast(`✅ 데이터 가져오기 완료`);
+      e.target.value = '';
+      setModal(null);
+    };
+    input.addEventListener('change', handler);
+    return () => input.removeEventListener('change', handler);
+  }, []);
+
+  const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2800); };
+
+  /* 도장 */
+  function handleStampFile(e) {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = async ev => {
+      const data = ev.target.result;
+      setStamp(data);
+      try { await idbSet('stamp', data); showToast('✅ 도장이 등록되었습니다'); }
+      catch  { showToast('⚠️ 도장 저장 실패 (브라우저 저장소 오류)'); }
+    };
+    r.readAsDataURL(f);
+    e.target.value = '';
+  }
+
+  /* 공급자 */
+  function handleSupplierSave(s) {
+    setSupplier(s);
+    setModal(null);
+    showToast('✅ 공급자 정보가 저장되었습니다');
+  }
+
+  /* 거래처 */
+  function handleCustomerApply(c) {
+    setCustomer(c);
+    setModal(null);
+    showToast('✅ 거래처 정보가 적용되었습니다');
+  }
+  function handleCustomerSaveToList(c) {
+    const entry = { ...c, id: Date.now() };
+    setCustomers(prev => [...prev, entry]);
+    showToast(`✅ '${c.name}' 거래처 목록에 저장됨`);
+  }
+  function handleCustomerDeleteFromList(id) {
+    setCustomers(prev => prev.filter(c => c.id !== id));
+  }
+
+  /* 카탈로그 */
+  function handleCatalogDelete(id) {
+    setCatalog(prev => prev.filter(c => c.id !== id));
+  }
+
+  /* 품목 삭제 */
+  function removeItem(id) { setItems(prev => prev.filter(it => it.id !== id)); }
+
+  /* JSON 내보내기 */
+  function handleExport() {
+    const today = todayISO();
+    const data = {
+      version:      1,
+      exportedAt:   today,
+      supplier,
+      catalog,
+      customers,
+      customer,
+      currentItems: items,
+      remark,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `zytn_backup_${today}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('✅ JSON 파일이 내보내졌습니다');
+  }
+
+  return (
+    <div className="app-wrap">
+
+      <div className="app-header">
+        <h1>자동거래명세서</h1>
+        <div className="hdiv"></div>
+        <span className="sub">Auto Trade Statement</span>
+      </div>
+
+      {/* 숨김 인풋 */}
+      <input ref={stampRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleStampFile} />
+
+      <ControlPanel
+        items={items} setItems={setItems}
+        catalog={catalog} setCatalog={setCatalog}
+        date={date} setDate={setDate}
+        onSupplierClick={() => setModal('supplier')}
+        onCustomerClick={() => setModal('customer')}
+        onStampClick={() => stampRef.current?.click()}
+        onJsonClick={() => setModal('json')}
+      />
+
+      <div className="inv-wrap">
+        <InvoiceDoc
+          items={items} date={date}
+          supplier={supplier} customer={customer}
+          stamp={stamp}
+          remark={remark} onRemarkChange={setRemark}
+          onRemove={removeItem}
+          onStampClick={() => stampRef.current?.click()}
+        />
+      </div>
+
+      <div className="action-panel">
+        <button className="btn btn-print" onClick={() => setModal('share')}>🖨️ 인쇄 / PDF 저장</button>
+        <button className="btn btn-soft" onClick={() => setModal('catalog')}>📋 카탈로그 관리</button>
+      </div>
+
+      {/* ── 모달 ── */}
+      {modal === 'supplier' && (
+        <SupplierModal supplier={supplier} onSav
