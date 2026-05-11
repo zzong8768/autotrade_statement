@@ -903,7 +903,7 @@ function InvoiceDoc({ items, date, supplier, customer, stamp, remark, onRemarkCh
   return (
     <div id="inv-doc">
       <table className="inv-tbl">
-        <colgroup>{Array(24).fill(null).map((_, i) => <col key={i} />)}</colgroup>
+        <colgroup>{[33,33,33,29,29,29,29,29,33,40,40,40,33,33,33,29,29,29,29,29,33,40,40,40].map((w,i)=><col key={i} style={{width:w+'px'}}/>)}</colgroup>
         <tbody>
 
           {/* ══ 제목 행 1 ══ */}
