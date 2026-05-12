@@ -61,7 +61,7 @@ body {
 .inv-tbl td { border: 1px solid #888; padding: 4px 6px; vertical-align: middle; font-size: 12px; }
 .item-tr:hover td { background: #f6f8ff; }
 
-/* ── Delete Button (항상 표시 — 모바일 대응) ── */
+/* ── Delete Button ── */
 .del-btn {
   background: none; border: none; color: #ccc; font-size: 15px;
   cursor: pointer; padding: 0 4px; line-height: 1; vertical-align: middle;
@@ -79,7 +79,7 @@ body {
 @keyframes fadeup { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
 /* ── Stamp hover hint ───────── */
-.stamp-wrap { position: relative; cursor: pointer; flex-shrink: 0; width:50px; height:50px; overflow:hidden; border-radius:50%; }
+.stamp-wrap { position: relative; cursor: pointer; flex-shrink: 0; }
 .stamp-wrap::after { content: '클릭 변경'; position: absolute; inset: 0; background: rgba(0,0,0,.45); color: #fff; font-size: 9px; font-weight: 600; display: flex; align-items: center; justify-content: center; border-radius: 50%; opacity: 0; transition: opacity .15s; }
 .stamp-wrap:hover::after { opacity: 1; }
 
@@ -157,31 +157,20 @@ body {
 /* ── Print / PDF (A4 기준) ──── */
 @page {
   size: A4 portrait;
-  margin: 15mm 12mm 15mm 12mm; /* 상 우 하 좌 */
+  margin: 15mm 12mm 15mm 12mm;
 }
 @media print {
   html, body { background: white !important; padding: 0 !important; margin: 0 !important; }
   .ctrl-panel, .app-header, .action-panel { display: none !important; }
   .inv-wrap {
-    border: none !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    overflow: visible !important;
-    width: 100% !important;
-    max-width: 100% !important;
+    border: none !important; box-shadow: none !important;
+    padding: 0 !important; overflow: visible !important;
+    width: 100% !important; max-width: 100% !important;
   }
-  .app-wrap {
-    max-width: 100% !important;
-    padding: 0 !important;
-    gap: 0 !important;
-  }
-  .inv-tbl {
-    width: 100% !important;
-    font-size: 10px !important;
-  }
+  .app-wrap { max-width: 100% !important; padding: 0 !important; gap: 0 !important; }
+  .inv-tbl { width: 100% !important; font-size: 9px !important; }
   .del-btn { display: none !important; }
-  /* A4 한 페이지에 맞게 행 높이 축소 */
-  .inv-tbl td { padding: 3px 4px !important; }
+  .inv-tbl td { padding: 2px 4px !important; }
 }
 </style>
 </head>
@@ -189,6 +178,22 @@ body {
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useRef, useEffect } = React;
+
+/* ══════════════════════════════════════════
+   ★ 상수 (Magic Number 제거 — Step 1)
+══════════════════════════════════════════ */
+const C = {
+  MIN_ROWS:        20,     // A4 1페이지 기준 최소 행수
+  EMPTY_ROW_H:     24,     // 빈 행 높이(px)
+  STAMP_SIZE:      50,     // 도장 이미지 크기(px)
+  CAPTURE_SCALE:   2,      // html2canvas 배율
+  A4_WIDTH_PX:     794,    // A4 고정 너비(px)
+  CAPTURE_PAD:     20,     // 캡처 여백(px)
+  TOAST_MS:        2800,   // toast 표시 시간(ms)
+  FONT_TIMEOUT_MS: 5000,   // 폰트 로딩 타임아웃(ms)
+  MAX_PNG_MB:      5,      // 카카오톡 제한(MB)
+  TG_WORKERS_URL:  'https://soft-forest-aa27.zzong8768.workers.dev',
+};
 
 /* ══════════════════════════════════════════
    IndexedDB helpers (도장 전용)
@@ -229,16 +234,144 @@ const loadLS = (k, fb) => {
 };
 const saveLS = (k, v) => {
   try { localStorage.setItem(k, JSON.stringify(v)); }
-  catch (e) { console.warn('localStorage 저장 실패', e); }
+  catch (e) { console.warn('[localStorage] 저장 실패', e); }
 };
 
 /* ══════════════════════════════════════════
-   ★ 연동 설정 — 여기에 직접 입력
+   ★ 에러 핸들러 (패턴 통일 — Step 1)
+══════════════════════════════════════════ */
+function makeErrorHandler(showToast) {
+  return function handleError(context, error) {
+    console.error(`[${context}]`, error);
+    showToast(`❌ ${context} 실패`);
+  };
+}
+
+/* ══════════════════════════════════════════
+   ★ iframe 고정 캡처 엔진 (Step 2)
+   - 항상 A4_WIDTH_PX(794px) 고정
+   - 기기 화면 너비와 무관
+   - 원본 화면 변경 없음 (깜빡임 없음)
+   - fonts.ready 보장
+══════════════════════════════════════════ */
+async function captureInvoice(scale = C.CAPTURE_SCALE) {
+  const srcEl = document.getElementById('inv-doc');
+  if (!srcEl) throw new Error('inv-doc 요소 없음');
+
+  /* 1) 폰트 로딩 보장 (타임아웃 5초) */
+  await Promise.race([
+    document.fonts.ready,
+    new Promise(res => setTimeout(res, C.FONT_TIMEOUT_MS)),
+  ]);
+
+  /* 2) 숨김 iframe 생성 (794px 고정) */
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = [
+    'position:fixed',
+    'left:-9999px',
+    'top:0',
+    `width:${C.A4_WIDTH_PX}px`,
+    'height:1px',
+    'border:none',
+    'visibility:hidden',
+  ].join(';');
+  document.body.appendChild(iframe);
+
+  try {
+    /* 3) 현재 페이지 스타일 + inv-doc HTML 주입 */
+    const styles = Array.from(document.styleSheets)
+      .map(ss => {
+        try { return Array.from(ss.cssRules).map(r => r.cssText).join('\n'); }
+        catch { return ''; }
+      }).join('\n');
+
+    const invHTML = srcEl.outerHTML;
+
+    await new Promise(res => {
+      iframe.onload = res;
+      iframe.srcdoc = `<!DOCTYPE html><html><head>
+        <meta charset="UTF-8">
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>${styles}</style>
+        </head><body style="margin:0;padding:20px;background:#fff;">
+        ${invHTML}
+        </body></html>`;
+    });
+
+    /* 4) iframe 내부 폰트 로딩 대기 */
+    await Promise.race([
+      iframe.contentDocument.fonts.ready,
+      new Promise(res => setTimeout(res, C.FONT_TIMEOUT_MS)),
+    ]);
+
+    /* 5) iframe 높이를 실제 콘텐츠에 맞춤 */
+    const contentH = iframe.contentDocument.body.scrollHeight;
+    iframe.style.height = contentH + 'px';
+
+    /* 6) html2canvas 캡처 */
+    const raw = await html2canvas(
+      iframe.contentDocument.getElementById('inv-doc') || iframe.contentDocument.body,
+      {
+        scale,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        logging: false,
+        width: C.A4_WIDTH_PX,
+        windowWidth: C.A4_WIDTH_PX,
+      }
+    );
+
+    /* 7) 여백(CAPTURE_PAD) 추가 */
+    const pad = Math.round(C.CAPTURE_PAD * scale);
+    const out = document.createElement('canvas');
+    out.width  = raw.width  + pad * 2;
+    out.height = raw.height + pad * 2;
+    const ctx = out.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(raw, pad, pad);
+
+    return out;
+
+  } finally {
+    /* 8) iframe 반드시 제거 */
+    document.body.removeChild(iframe);
+  }
+}
+
+/* ══════════════════════════════════════════
+   ★ PNG 크기 자동 조정 (5MB 초과 시)
+══════════════════════════════════════════ */
+async function captureWithSizeLimit() {
+  const scales = [C.CAPTURE_SCALE, 1.5, 1];
+  for (const scale of scales) {
+    const canvas = await captureInvoice(scale);
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    if (blob.size <= C.MAX_PNG_MB * 1024 * 1024) return { canvas, blob };
+  }
+  // 최소 scale로도 초과 시 그냥 반환
+  const canvas = await captureInvoice(1);
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+  return { canvas, blob };
+}
+
+/* ══════════════════════════════════════════
+   ★ 플랫폼 감지 (Step 3)
+══════════════════════════════════════════ */
+const Platform = {
+  isIOS:    /iPhone|iPad|iPod/i.test(navigator.userAgent),
+  isKakao:  /KAKAOTALK/i.test(navigator.userAgent),
+  hasShare: typeof navigator.share === 'function',
+  hasClipboardWrite: !!(navigator.clipboard && navigator.clipboard.write),
+};
+
+/* ══════════════════════════════════════════
+   CONFIG — Workers URL만 여기서 관리
+   토큰은 Workers 환경변수로 이전 완료
 ══════════════════════════════════════════ */
 const CONFIG = {
-  tgToken:  '8470986147:AAGvqLfJmaoYdLPGIkzactAT14tQSTEm_50',
-  tgChatId: '8632713094',
-  kakaoUrl: 'https://open.kakao.com/o/sxAt3nti',
+  tgWorkersUrl: C.TG_WORKERS_URL,  // 'https://your-worker.workers.dev/send-tg'
+  kakaoUrl:     '',                 // 오픈채팅 URL
 };
 
 /* ══════════════════════════════════════════
@@ -285,221 +418,152 @@ const hdr = { background:'#efefef', textAlign:'center', fontSize:11, fontWeight:
 const dat = { textAlign:'center', padding:'5px 6px', fontSize:12 };
 const vatS = { background:'#fef9ea', textAlign:'center', padding:'5px 6px', fontSize:12 };
 const totS = { background:'#f5f5f5', textAlign:'center', padding:'5px 6px', fontSize:12, fontWeight:700, borderTop:SB };
-const emp  = { height: 30 };
+const emp  = { height: C.EMPTY_ROW_H };  // ← 상수 사용
 const vLbl = { writingMode:'vertical-rl', textOrientation:'upright', fontSize:11, fontWeight:700, textAlign:'center', background:'#f8f8f8', padding:'10px 3px' };
 const CS   = { item:6, unit:1, qty:2, price:2, sup:3, vat:2, tot:8 };
 
 /* ══════════════════════════════════════════
-   공유 Modal (다크 테마)
+   ★ 공유 Modal (플랫폼 분기 — Step 3)
 ══════════════════════════════════════════ */
-function ShareModal({ onClose }) {
-  const [preview,  setPreview]  = useState(null);
-  const [busy,     setBusy]     = useState(false);
-  const [statusMsg, setStatus]  = useState({ text:'', type:'' });
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+function ShareModal({ onClose, showToast }) {
+  const [preview,    setPreview]  = useState(null);
+  const [busy,       setBusy]     = useState(false);
+  const [statusMsg,  setStatus]   = useState({ text:'', type:'' });
 
-  /* 미리보기 생성 */
-  useEffect(() => {
-    const el = document.getElementById('inv-doc');
-    if (!el || typeof html2canvas === 'undefined') return;
-    /* 미리보기도 A4 고정 너비 클론 */
-    const A4W = 794;
-    const wrapP = document.createElement('div');
-    wrapP.style.cssText = 'position:fixed;top:-19999px;left:-19999px;width:' + A4W + 'px;background:#fff;overflow:visible;z-index:-9999;';
-    const cloneP = el.cloneNode(true);
-    cloneP.style.cssText += ';width:' + A4W + 'px;min-width:' + A4W + 'px;overflow:visible;';
-    const tblP = cloneP.querySelector('.inv-tbl');
-    if (tblP) tblP.style.cssText += ';width:' + A4W + 'px;min-width:' + A4W + 'px;';
-    wrapP.appendChild(cloneP);
-    document.body.appendChild(wrapP);
-    html2canvas(cloneP, {
-      scale: 0.5,
-      backgroundColor: '#ffffff',
-      logging: false,
-      useCORS: true,
-      width: A4W,
-      windowWidth: A4W + 40,
-      scrollX: 0, scrollY: 0,
-    })
-      .then(c => { setPreview(c.toDataURL('image/jpeg', 0.7)); document.body.removeChild(wrapP); })
-      .catch(() => { try { document.body.removeChild(wrapP); } catch(_){} });
-  }, []);
-
-  async function capture(scale = 2) {
-    const el = document.getElementById('inv-doc');
-    if (!el) throw new Error('요소 없음');
-
-    /* ══ A4 고정 너비(794px) 숨김 컨테이너에 클론 → 기기 무관 동일 출력 ══ */
-    const A4W = 794;
-
-    const wrap = document.createElement('div');
-    wrap.style.cssText = [
-      'position:fixed', 'top:-19999px', 'left:-19999px',
-      `width:${A4W}px`, 'background:#fff',
-      'overflow:visible', 'z-index:-9999',
-    ].join(';');
-
-    const clone = el.cloneNode(true);
-    clone.style.cssText += ';width:' + A4W + 'px;min-width:' + A4W + 'px;overflow:visible;';
-
-    /* 테이블도 고정 너비 강제 */
-    const tbl = clone.querySelector('.inv-tbl');
-    if (tbl) tbl.style.cssText += ';width:' + A4W + 'px;min-width:' + A4W + 'px;';
-
-    wrap.appendChild(clone);
-    document.body.appendChild(wrap);
-
-    /* ── 클론 내 input → div 교체 (html2canvas 전에 실행해야 효과 있음) ── */
-    clone.querySelectorAll('input').forEach(inp => {
-      const d = document.createElement('div');
-      d.textContent = inp.value || '';
-      d.style.cssText = (inp.getAttribute('style') || '') +
-        ';overflow:visible;white-space:nowrap;display:flex;align-items:center;';
-      inp.parentNode.replaceChild(d, inp);
-    });
-
-    const fullH = clone.scrollHeight;
-
-    let raw;
-    try {
-      raw = await html2canvas(clone, {
-        scale,
-        backgroundColor: '#ffffff',
-        useCORS:     true,
-        logging:     false,
-        width:       A4W,
-        height:      fullH,
-        windowWidth: A4W + 40,
-        windowHeight: fullH + 40,
-        scrollX:     0,
-        scrollY:     0,
-      });
-    } finally {
-      document.body.removeChild(wrap);
-    }
-
-    /* ── 여백(40px) 추가 ── */
-    const pad = Math.round(40 * scale);
-    const out = document.createElement('canvas');
-    out.width  = raw.width  + pad * 2;
-    out.height = raw.height + pad * 2;
-    const ctx = out.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, out.width, out.height);
-    ctx.drawImage(raw, pad, pad);
-    return out;
-  }
+  const handleError = makeErrorHandler(msg => setStatus({ text: msg, type: 'err' }));
 
   function toast(text, type = 'ok') {
     setStatus({ text, type });
     setTimeout(() => setStatus({ text:'', type:'' }), 3000);
   }
 
+  /* 미리보기 생성 (저해상도) */
+  useEffect(() => {
+    const el = document.getElementById('inv-doc');
+    if (!el || typeof html2canvas === 'undefined') return;
+    html2canvas(el, { scale: 0.5, backgroundColor: '#ffffff', logging: false, useCORS: true })
+      .then(c => setPreview(c.toDataURL('image/jpeg', 0.7)))
+      .catch(e => console.warn('[preview]', e));
+  }, []);
+
+  /* ── PNG 저장 ── */
   async function savePNG() {
     setBusy(true);
     try {
-      const canvas = await capture(2);
-      const link = document.createElement('a');
+      const { canvas } = await captureWithSizeLimit();
       const today = new Date().toLocaleDateString('ko-KR').replace(/\. /g,'-').replace('.','');
+      const link = document.createElement('a');
       link.download = `거래명세서_${today}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
       toast('✅ PNG 저장 완료');
-    } catch { toast('❌ 저장 실패', 'err'); }
-    setBusy(false);
+    } catch(e) {
+      handleError('PNG 저장', e);
+    } finally {
+      setBusy(false);
+    }
   }
 
+  /* ── 클립보드 복사 ── */
   async function copyClipboard() {
     setBusy(true);
     try {
-      const canvas = await capture(2);
-      /* ClipboardItem 미지원(모바일) 체크 */
-      if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
-        /* 폴백: 자동 PNG 저장 */
-        const link = document.createElement('a');
-        const today = new Date().toLocaleDateString('ko-KR').replace(/\. /g,'-').replace('.','');
-        link.download = `거래명세서_${today}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-        toast('📱 모바일은 PNG 저장됨 — 카톡 파일 전송으로 공유하세요');
-      } else {
-        await new Promise((res, rej) => {
-          canvas.toBlob(async blob => {
-            try {
-              await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-              res();
-            } catch(e) { rej(e); }
-          }, 'image/png');
+      const { blob } = await captureWithSizeLimit();
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      toast('✅ 클립보드 복사됨 — 카톡/메일에 붙여넣기 하세요');
+    } catch(e) {
+      handleError('클립보드 복사', e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ── ★ 텔레그램 전송 (Workers 경유) ── */
+  async function sendTelegram() {
+    if (!CONFIG.tgWorkersUrl) {
+      toast('❌ Workers URL을 설정하세요 (C.TG_WORKERS_URL)', 'err');
+      return;
+    }
+    setBusy(true);
+    try {
+      const { blob } = await captureWithSizeLimit();
+      const fd = new FormData();
+      fd.append('photo', blob, '거래명세서.png');
+
+      const res  = await fetch(CONFIG.tgWorkersUrl, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.ok) toast('✅ 텔레그램 전송 완료');
+      else toast(`❌ 전송 실패: ${data.description}`, 'err');
+    } catch(e) {
+      handleError('텔레그램 전송', e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ── ★ 카카오/모바일 공유 (플랫폼 분기) ── */
+  async function shareKakao() {
+    setBusy(true);
+    try {
+      const { blob } = await captureWithSizeLimit();
+      const file = new File([blob], '거래명세서.png', { type: 'image/png' });
+
+      /* iOS Safari / Android: Web Share API 우선 */
+      if (Platform.hasShare && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: '거래명세서',
+          files: [file],
         });
-        toast('✅ 클립보드에 복사됨 — 카톡/메일에 붙여넣기 하세요');
+        toast('✅ 공유 완료');
+        return;
       }
-    } catch { toast('❌ 복사 실패 — PNG 저장 버튼을 이용하세요', 'err'); }
-    setBusy(false);
+
+      /* 카카오 인앱브라우저: 클립보드 불가 → PNG 다운로드 안내 */
+      if (Platform.isKakao) {
+        const link = document.createElement('a');
+        link.download = '거래명세서.png';
+        link.href = URL.createObjectURL(blob);
+        link.click();
+        toast('✅ PNG 저장됨 — 카카오톡에서 직접 첨부하세요');
+        return;
+      }
+
+      /* 그 외: 클립보드 복사 후 오픈채팅 열기 */
+      if (Platform.hasClipboardWrite) {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        if (CONFIG.kakaoUrl) window.open(CONFIG.kakaoUrl, '_blank');
+        toast('✅ 이미지 복사됨 → 채팅방에서 Ctrl+V');
+      } else {
+        /* 최종 폴백: PNG 저장 */
+        const link = document.createElement('a');
+        link.download = '거래명세서.png';
+        link.href = URL.createObjectURL(blob);
+        link.click();
+        toast('⚠️ PNG 저장 후 카카오톡에 직접 첨부하세요');
+      }
+    } catch(e) {
+      if (e.name === 'AbortError') {
+        toast('공유가 취소되었습니다');
+      } else {
+        handleError('카카오 공유', e);
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
   function openEmail() {
-    window.location.href = 'mailto:?subject=거래명세서&body=안녕하세요%2C%20거래명세서를%20보내드립니다.';
-  }
-
-  /* 텔레그램 Bot API — PNG 파일 직접 전송 */
-  async function sendTelegram() {
-    if (!CONFIG.tgToken || !CONFIG.tgChatId) {
-      toast('❌ CONFIG에 tgToken / tgChatId를 입력하세요', 'err'); return;
-    }
-    setBusy(true);
-    try {
-      const canvas = await capture(2);
-      canvas.toBlob(async blob => {
-        try {
-          const fd = new FormData();
-          fd.append('chat_id', CONFIG.tgChatId);
-          fd.append('photo', blob, '거래명세서.png');
-          const res  = await fetch(`https://api.telegram.org/bot${CONFIG.tgToken}/sendPhoto`, { method:'POST', body:fd });
-          const data = await res.json();
-          if (data.ok) toast('✅ 텔레그램 전송 완료');
-          else toast(`❌ 전송 실패: ${data.description}`, 'err');
-        } catch { toast('❌ 텔레그램 전송 실패 (네트워크 오류)', 'err'); }
-        setBusy(false);
-      }, 'image/png');
-    } catch { setBusy(false); toast('❌ 이미지 생성 실패', 'err'); }
-  }
-
-  /* 카카오 오픈채팅방 — 이미지 클립보드 복사 후 채팅방 오픈 */
-  async function shareKakao() {
-    if (!CONFIG.kakaoUrl) {
-      toast('❌ CONFIG에 kakaoUrl을 입력하세요', 'err'); return;
-    }
-    setBusy(true);
-    try {
-      const canvas = await capture(2);
-      canvas.toBlob(async blob => {
-        try {
-          /* 1) 클립보드에 이미지 복사 */
-          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-          /* 2) 오픈채팅방 열기 */
-          window.open(CONFIG.kakaoUrl, '_blank');
-          toast('✅ 이미지 복사됨 → 채팅방에서 Ctrl+V / 붙여넣기');
-        } catch {
-          /* 클립보드 실패 시 채팅방만 열기 */
-          window.open(CONFIG.kakaoUrl, '_blank');
-          toast('⚠️ 클립보드 복사 실패 — PNG 저장 후 직접 첨부하세요', 'err');
-        }
-        setBusy(false);
-      }, 'image/png');
-    } catch { setBusy(false); toast('❌ 이미지 생성 실패', 'err'); }
+    window.location.href = 'mailto:?subject=거래명세서&body=거래명세서를 보내드립니다.';
   }
 
   return (
     <div className="share-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="share-box">
-
-        {/* 헤더 */}
         <div className="share-head">
           <span className="share-head-title">🏷️ 발주서 공유</span>
           <button className="share-head-close" onClick={onClose}>✕</button>
         </div>
 
-        {/* 미리보기 */}
         <div className="share-preview">
           {preview
             ? <img src={preview} alt="미리보기" />
@@ -507,33 +571,26 @@ function ShareModal({ onClose }) {
           }
         </div>
 
-        {/* 버튼 */}
         <div className="share-btns">
-          <button className="shr-btn shr-png" onClick={savePNG} disabled={busy}>
-            📷 PNG 저장
-          </button>
-          <button className="shr-btn shr-clip" onClick={copyClipboard} disabled={busy}>
-            📋 클립보드 복사 → 카톡/메일에 붙여넣기
-          </button>
+          <button className="shr-btn shr-png"  onClick={savePNG}       disabled={busy}>📷 PNG 저장</button>
+          <button className="shr-btn shr-clip" onClick={copyClipboard} disabled={busy}>📋 클립보드 복사</button>
           <div className="shr-row">
             <button className="shr-btn shr-email" onClick={openEmail}    disabled={busy}>📧 이메일</button>
-            <button className="shr-btn shr-tg"    onClick={sendTelegram} disabled={busy}>✈️ 텔레그램 전송</button>
+            <button className="shr-btn shr-tg"    onClick={sendTelegram} disabled={busy}>✈️ 텔레그램</button>
           </div>
-          {isMobile && (
-            <button className="shr-btn shr-kakao" onClick={shareKakao} disabled={busy}>
-              💬 카카오톡 (오픈채팅방)
-            </button>
-          )}
+          <button className="shr-btn shr-kakao" onClick={shareKakao} disabled={busy}>
+            💬 {Platform.hasShare ? '시스템 공유' : '카카오톡'}
+          </button>
         </div>
 
-        {/* 상태 메시지 */}
         <p className={`shr-status ${statusMsg.type}`}>{statusMsg.text}</p>
-
-        {/* 팁 */}
         <p className="share-tip">
-          💡 클립보드 복사 후 카카오톡/메일에 Ctrl+V 붙여넣기
+          {Platform.isKakao
+            ? '💡 카카오 브라우저: PNG 저장 후 직접 첨부하세요'
+            : Platform.isIOS
+              ? '💡 iOS: 시스템 공유로 바로 카카오톡 전송 가능'
+              : '💡 클립보드 복사 후 카카오톡 / 메일에 Ctrl+V'}
         </p>
-
         <button className="share-close-btn" onClick={onClose}>닫기</button>
       </div>
     </div>
@@ -559,111 +616,79 @@ function Modal({ title, onClose, children, footer }) {
 }
 
 /* ══════════════════════════════════════════
+   ★ Confirm Modal (confirm() 제거 — Step 1)
+══════════════════════════════════════════ */
+function ConfirmModal({ message, detail, onConfirm, onCancel }) {
+  return (
+    <Modal title="확인" onClose={onCancel}
+      footer={
+        <>
+          <button className="btn btn-soft"    onClick={onCancel}>취소</button>
+          <button className="btn btn-danger"  onClick={onConfirm}>확인</button>
+        </>
+      }
+    >
+      <p style={{ fontSize:14, lineHeight:1.7, marginBottom: detail ? 10 : 0 }}>{message}</p>
+      {detail && <pre style={{ fontSize:11, background:'#f8f9fa', padding:'10px', borderRadius:6, whiteSpace:'pre-wrap', color:'#555' }}>{detail}</pre>}
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════
    공급자 모달
 ══════════════════════════════════════════ */
 function SupplierModal({ supplier, onSave, onClose }) {
   const [f, setF] = useState({ ...supplier });
   const s = (k, v) => setF(p => ({ ...p, [k]: v }));
-
   return (
-    <Modal
-      title="🏢 공급자 정보 설정"
-      onClose={onClose}
+    <Modal title="🏢 공급자 정보 설정" onClose={onClose}
       footer={
         <>
-          <button className="btn btn-soft" onClick={onClose}>취소</button>
+          <button className="btn btn-soft"    onClick={onClose}>취소</button>
           <button className="btn btn-primary" onClick={() => onSave(f)}>저장</button>
         </>
       }
     >
-      <div className="form-row">
-        <label>사업자등록번호</label>
-        <input value={f.regNo} onChange={e => s('regNo', e.target.value)} placeholder="000-00-00000" />
-      </div>
+      <div className="form-row"><label>사업자등록번호</label><input value={f.regNo} onChange={e => s('regNo', e.target.value)} placeholder="000-00-00000" /></div>
       <div className="form-2col">
-        <div className="form-row">
-          <label>상호(법인명)</label>
-          <input value={f.name} onChange={e => s('name', e.target.value)} />
-        </div>
-        <div className="form-row">
-          <label>대표자(성명)</label>
-          <input value={f.ceo} onChange={e => s('ceo', e.target.value)} />
-        </div>
+        <div className="form-row"><label>상호(법인명)</label><input value={f.name}  onChange={e => s('name',  e.target.value)} /></div>
+        <div className="form-row"><label>대표자(성명)</label><input value={f.ceo}   onChange={e => s('ceo',   e.target.value)} /></div>
       </div>
-      <div className="form-row">
-        <label>사업장 주소</label>
-        <input value={f.address} onChange={e => s('address', e.target.value)} />
-      </div>
+      <div className="form-row"><label>사업장 주소</label><input value={f.address} onChange={e => s('address', e.target.value)} /></div>
       <div className="form-2col">
-        <div className="form-row">
-          <label>업태</label>
-          <input value={f.bizType} onChange={e => s('bizType', e.target.value)} />
-        </div>
-        <div className="form-row">
-          <label>종목</label>
-          <input value={f.bizItem} onChange={e => s('bizItem', e.target.value)} />
-        </div>
+        <div className="form-row"><label>업태</label><input value={f.bizType} onChange={e => s('bizType', e.target.value)} /></div>
+        <div className="form-row"><label>종목</label><input value={f.bizItem} onChange={e => s('bizItem', e.target.value)} /></div>
       </div>
     </Modal>
   );
 }
 
 /* ══════════════════════════════════════════
-   거래처 모달 (선택 + 저장 + 삭제)
+   거래처 모달
 ══════════════════════════════════════════ */
 function CustomerModal({ customer, customers, onApply, onSaveToList, onDeleteFromList, onClose }) {
   const [f, setF] = useState({ ...customer });
   const s = (k, v) => setF(p => ({ ...p, [k]: v }));
-
   return (
-    <Modal
-      title="👤 거래처 관리"
-      onClose={onClose}
+    <Modal title="👤 거래처 관리" onClose={onClose}
       footer={
         <>
           <button className="btn btn-soft" onClick={onClose}>취소</button>
-          <button
-            className="btn btn-ghost"
-            onClick={() => {
-              if (!f.name.trim()) { alert('거래처명을 입력하세요'); return; }
-              onSaveToList({ ...f });
-            }}
-          >
-            목록에 저장
-          </button>
+          <button className="btn btn-ghost" onClick={() => { if (!f.name.trim()) { alert('거래처명을 입력하세요'); return; } onSaveToList({ ...f }); }}>목록에 저장</button>
           <button className="btn btn-primary" onClick={() => onApply({ ...f })}>적용</button>
         </>
       }
     >
-      <div className="form-row">
-        <label>사업자등록번호</label>
-        <input value={f.regNo} onChange={e => s('regNo', e.target.value)} placeholder="000-00-00000" />
-      </div>
+      <div className="form-row"><label>사업자등록번호</label><input value={f.regNo} onChange={e => s('regNo', e.target.value)} placeholder="000-00-00000" /></div>
       <div className="form-2col">
-        <div className="form-row">
-          <label>상호(법인명)</label>
-          <input value={f.name} onChange={e => s('name', e.target.value)} placeholder="거래처명" />
-        </div>
-        <div className="form-row">
-          <label>대표자(성명)</label>
-          <input value={f.ceo} onChange={e => s('ceo', e.target.value)} />
-        </div>
+        <div className="form-row"><label>상호(법인명)</label><input value={f.name} onChange={e => s('name', e.target.value)} placeholder="거래처명" /></div>
+        <div className="form-row"><label>대표자(성명)</label><input value={f.ceo}  onChange={e => s('ceo',  e.target.value)} /></div>
       </div>
-      <div className="form-row">
-        <label>사업장 주소</label>
-        <input value={f.address} onChange={e => s('address', e.target.value)} />
-      </div>
+      <div className="form-row"><label>사업장 주소</label><input value={f.address} onChange={e => s('address', e.target.value)} /></div>
       <div className="form-2col">
-        <div className="form-row">
-          <label>업태</label>
-          <input value={f.bizType} onChange={e => s('bizType', e.target.value)} />
-        </div>
-        <div className="form-row">
-          <label>종목</label>
-          <input value={f.bizItem} onChange={e => s('bizItem', e.target.value)} />
-        </div>
+        <div className="form-row"><label>업태</label><input value={f.bizType} onChange={e => s('bizType', e.target.value)} /></div>
+        <div className="form-row"><label>종목</label><input value={f.bizItem} onChange={e => s('bizItem', e.target.value)} /></div>
       </div>
-
       {customers.length > 0 && (
         <>
           <div className="section-title">저장된 거래처 ({customers.length}개) — 클릭하면 불러오기</div>
@@ -674,11 +699,7 @@ function CustomerModal({ customer, customers, onApply, onSaveToList, onDeleteFro
                   <div className="cust-item-name">{c.name}</div>
                   <div className="cust-item-sub">{[c.regNo, c.bizType, c.bizItem].filter(Boolean).join(' · ')}</div>
                 </div>
-                <button
-                  className="cust-del"
-                  onClick={e => { e.stopPropagation(); onDeleteFromList(c.id); }}
-                  title="삭제"
-                >✕</button>
+                <button className="cust-del" onClick={e => { e.stopPropagation(); onDeleteFromList(c.id); }} title="삭제">✕</button>
               </div>
             ))}
           </div>
@@ -693,15 +714,12 @@ function CustomerModal({ customer, customers, onApply, onSaveToList, onDeleteFro
 ══════════════════════════════════════════ */
 function CatalogModal({ catalog, onDelete, onClose }) {
   return (
-    <Modal
-      title={`📋 카탈로그 관리 (${catalog.length}개)`}
-      onClose={onClose}
+    <Modal title={`📋 카탈로그 관리 (${catalog.length}개)`} onClose={onClose}
       footer={<button className="btn btn-soft" onClick={onClose}>닫기</button>}
     >
       {catalog.length === 0
         ? <p style={{ textAlign:'center', color:'#aaa', padding:'20px 0', fontSize:13 }}>저장된 품목이 없습니다</p>
-        : (
-          <div className="cat-list">
+        : <div className="cat-list">
             {catalog.map(c => (
               <div key={c.id} className="cat-item">
                 <span className="cat-item-name">{c.name}</span>
@@ -712,20 +730,17 @@ function CatalogModal({ catalog, onDelete, onClose }) {
               </div>
             ))}
           </div>
-        )
       }
     </Modal>
   );
 }
 
 /* ══════════════════════════════════════════
-   JSON 모달 (내보내기 / 가져오기 안내)
+   JSON 모달
 ══════════════════════════════════════════ */
 function JsonModal({ onExport, onClose, importInputRef }) {
   return (
-    <Modal
-      title="📂 JSON 데이터 동기화"
-      onClose={onClose}
+    <Modal title="📂 JSON 데이터 동기화" onClose={onClose}
       footer={<button className="btn btn-soft" onClick={onClose}>닫기</button>}
     >
       <div className="json-info">
@@ -734,25 +749,17 @@ function JsonModal({ onExport, onClose, importInputRef }) {
         2. 카카오톡 / 메일로 파일 전송<br/>
         3. 모바일에서 <strong>가져오기</strong> → 파일 선택
       </div>
-
       <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-        <button
-          className="btn btn-green"
-          style={{ padding:'11px 0', fontSize:14, fontWeight:700 }}
-          onClick={() => { onExport(); onClose(); }}
-        >
+        <button className="btn btn-green" style={{ padding:'11px 0', fontSize:14, fontWeight:700 }}
+          onClick={() => { onExport(); onClose(); }}>
           📤 내보내기 (JSON 파일 다운로드)
         </button>
-
-        <label
-          className="btn btn-ghost"
-          style={{ padding:'11px 0', fontSize:14, fontWeight:700, textAlign:'center', cursor:'pointer', display:'block' }}
-        >
+        <label className="btn btn-ghost"
+          style={{ padding:'11px 0', fontSize:14, fontWeight:700, textAlign:'center', cursor:'pointer', display:'block' }}>
           📥 가져오기 (JSON 파일 선택)
           <input ref={importInputRef} type="file" accept=".json,application/json" style={{ display:'none' }} />
         </label>
       </div>
-
       <p style={{ fontSize:11, color:'#aaa', marginTop:12, lineHeight:1.6 }}>
         * 가져오기 시 기존 데이터 덮어쓰기 여부를 확인합니다<br/>
         * 도장 이미지는 JSON에 포함되지 않습니다
@@ -764,10 +771,7 @@ function JsonModal({ onExport, onClose, importInputRef }) {
 /* ══════════════════════════════════════════
    Control Panel
 ══════════════════════════════════════════ */
-function ControlPanel({
-  items, setItems, catalog, setCatalog, date, setDate,
-  onSupplierClick, onCustomerClick, onStampClick, onJsonClick
-}) {
+function ControlPanel({ items, setItems, catalog, setCatalog, date, setDate, onSupplierClick, onCustomerClick, onStampClick, onJsonClick, onConfirm }) {
   const [form, setForm]     = useState({ name:'', unit:'', quantity:'', price:'', vatIncluded:'false' });
   const [selectedId, setSel] = useState('');
   const sf = (k, v) => setForm(p => ({ ...p, [k]: v }));
@@ -800,66 +804,40 @@ function ControlPanel({
 
   return (
     <div className="ctrl-panel">
-
-      {/* ── Row 1: 날짜 + 설정 버튼 + JSON ── */}
       <div className="ctrl-section">
         <span className="ctrl-label">날 짜</span>
-        <input
-          type="date"
-          className="field-input"
-          style={{ width: 145 }}
-          value={date}
-          onChange={e => setDate(e.target.value)}
-        />
+        <input type="date" className="field-input" style={{ width:145 }} value={date} onChange={e => setDate(e.target.value)} />
         <div className="ctrl-divider" />
         <button className="btn btn-soft" onClick={onSupplierClick}>🏢 공급자</button>
         <button className="btn btn-soft" onClick={onCustomerClick}>👤 거래처</button>
         <button className="btn btn-soft" onClick={onStampClick}>🔖 도장</button>
-        <div style={{ flex: 1 }} />
+        <div style={{ flex:1 }} />
         <button className="btn btn-green" onClick={onJsonClick}>⇅ JSON 동기화</button>
       </div>
 
-      {/* ── Row 2: 품목 입력 ── */}
       <div className="ctrl-section">
         <span className="ctrl-label">품 목</span>
         <div className="item-form">
-          {/* 카탈로그 선택 */}
           <div className="field-group">
             <label>품목 선택</label>
-            <select className="field-select" style={{ width: 150 }} value={selectedId} onChange={handleCatalogSelect}>
+            <select className="field-select" style={{ width:150 }} value={selectedId} onChange={handleCatalogSelect}>
               <option value="">-- 선택 --</option>
               {catalog.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
               <option value="__new__">✏️ 직접 입력</option>
             </select>
           </div>
-
-          {/* 직접 입력 시 품목명 필드 */}
           {selectedId === '__new__' && (
             <div className="field-group">
               <label>품목명</label>
-              <input className="field-input" style={{ width: 120 }} value={form.name}
+              <input className="field-input" style={{ width:120 }} value={form.name}
                 onChange={e => sf('name', e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addItem()}
                 placeholder="품목명" />
             </div>
           )}
-
-          <div className="field-group">
-            <label>단위</label>
-            <input className="field-input" style={{ width: 46 }} value={form.unit}
-              onChange={e => sf('unit', e.target.value)} placeholder="EA" />
-          </div>
-          <div className="field-group">
-            <label>수량</label>
-            <input className="field-input" style={{ width: 62 }} type="number" min="0"
-              value={form.quantity} onChange={e => sf('quantity', e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addItem()} placeholder="0" />
-          </div>
-          <div className="field-group">
-            <label>단가</label>
-            <input className="field-input" style={{ width: 90 }} type="number" min="0"
-              value={form.price} onChange={e => sf('price', e.target.value)} placeholder="0" />
-          </div>
+          <div className="field-group"><label>단위</label><input className="field-input" style={{ width:46 }} value={form.unit} onChange={e => sf('unit', e.target.value)} placeholder="EA" /></div>
+          <div className="field-group"><label>수량</label><input className="field-input" style={{ width:62 }} type="number" min="0" value={form.quantity} onChange={e => sf('quantity', e.target.value)} onKeyDown={e => e.key === 'Enter' && addItem()} placeholder="0" /></div>
+          <div className="field-group"><label>단가</label><input className="field-input" style={{ width:90 }} type="number" min="0" value={form.price} onChange={e => sf('price', e.target.value)} placeholder="0" /></div>
           <div className="field-group">
             <label>부가세</label>
             <select className="field-select" value={form.vatIncluded} onChange={e => sf('vatIncluded', e.target.value)}>
@@ -867,24 +845,18 @@ function ControlPanel({
               <option value="true">포함</option>
             </select>
           </div>
-
           <button className="btn btn-primary" style={{ alignSelf:'flex-end', marginBottom:1 }} onClick={addItem}>+ 추가</button>
-
           {selectedId === '__new__' && form.name.trim() && form.price && (
-            <button className="btn btn-soft" style={{ alignSelf:'flex-end', marginBottom:1 }}
-              onClick={saveToCatalog} title="카탈로그에 저장">
-              💾 저장
-            </button>
+            <button className="btn btn-soft" style={{ alignSelf:'flex-end', marginBottom:1 }} onClick={saveToCatalog} title="카탈로그에 저장">💾 저장</button>
           )}
         </div>
-
-        <div style={{ flex: 1 }} />
+        <div style={{ flex:1 }} />
+        {/* ★ confirm() → ConfirmModal 교체 */}
         <button className="btn btn-danger"
-          onClick={() => { if (confirm('품목을 모두 지울까요?')) setItems([]); }}>
+          onClick={() => onConfirm('품목을 모두 지울까요?', null, () => setItems([]))}>
           🗑️ 초기화
         </button>
       </div>
-
     </div>
   );
 }
@@ -897,20 +869,18 @@ function InvoiceDoc({ items, date, supplier, customer, stamp, remark, onRemarkCh
   const vatAmount   = items.filter(it => !it.vatIncluded).reduce((s, it) => s + Math.round(it.quantity * it.price * 0.1), 0);
   const grandTotal  = supplyTotal + vatAmount;
   const grandQty    = items.reduce((s, it) => s + it.quantity, 0);
-  const EMPTY       = Math.max(0, 12 - items.length);
+  const EMPTY       = Math.max(0, C.MIN_ROWS - items.length);  // ← 상수 사용 (20행)
   const krDate      = isoToKr(date);
 
   return (
     <div id="inv-doc">
       <table className="inv-tbl">
-        <colgroup>{[33,33,33,29,29,29,29,29,33,40,40,40,33,33,33,29,29,29,29,29,33,40,40,40].map((w,i)=><col key={i} style={{width:w+'px'}}/>)}</colgroup>
+        <colgroup>{Array(24).fill(null).map((_, i) => <col key={i} />)}</colgroup>
         <tbody>
 
           {/* ══ 제목 행 1 ══ */}
           <tr>
-            <td colSpan={3} style={{ ...lbl, borderLeft:OB, borderTop:OB, borderBottom:IB, borderRight:IB, padding:'7px 8px', fontSize:11, letterSpacing:2 }}>
-              거 래 일 자
-            </td>
+            <td colSpan={3} style={{ ...lbl, borderLeft:OB, borderTop:OB, borderBottom:IB, borderRight:IB, padding:'7px 8px', fontSize:11, letterSpacing:2 }}>거 래 일 자</td>
             <td colSpan={21} rowSpan={2} style={{ borderLeft:IB, borderRight:OB, borderTop:OB, borderBottom:SB, textAlign:'center', verticalAlign:'middle', position:'relative', padding:'14px 20px' }}>
               <div style={{ fontSize:22, fontWeight:700, letterSpacing:8 }}>입출고증(거래명세서)</div>
               <div style={{ position:'absolute', bottom:6, right:12, fontSize:10, color:'#666' }}>(공급받는자 보관용)</div>
@@ -919,9 +889,7 @@ function InvoiceDoc({ items, date, supplier, customer, stamp, remark, onRemarkCh
 
           {/* ══ 제목 행 2 (날짜) ══ */}
           <tr>
-            <td colSpan={3} style={{ borderLeft:OB, borderTop:IB, borderRight:IB, borderBottom:SB, textAlign:'center', fontSize:11, color:'#444', padding:'5px 8px' }}>
-              {krDate}
-            </td>
+            <td colSpan={3} style={{ borderLeft:OB, borderTop:IB, borderRight:IB, borderBottom:SB, textAlign:'center', fontSize:11, color:'#444', padding:'5px 8px' }}>{krDate}</td>
           </tr>
 
           {/* ══ 등록번호 ══ */}
@@ -944,8 +912,8 @@ function InvoiceDoc({ items, date, supplier, customer, stamp, remark, onRemarkCh
                 <span>{supplier.ceo}</span>
                 <div className="stamp-wrap" onClick={onStampClick} title="도장 이미지 등록/변경">
                   {stamp
-                    ? <img src={stamp} alt="도장" style={{ width:50, height:50, objectFit:'contain', display:'block' }} />
-                    : <div style={{ width:50, height:50, borderRadius:'50%', border:'2px solid #c41e1e', color:'#c41e1e', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, lineHeight:1.3, textAlign:'center' }}>
+                    ? <img src={stamp} alt="도장" style={{ width:C.STAMP_SIZE, height:C.STAMP_SIZE, objectFit:'contain', display:'block' }} />
+                    : <div style={{ width:C.STAMP_SIZE, height:C.STAMP_SIZE, borderRadius:'50%', border:'2px solid #c41e1e', color:'#c41e1e', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, lineHeight:1.3, textAlign:'center' }}>
                         <span>인</span><span>감</span>
                       </div>
                   }
@@ -996,7 +964,7 @@ function InvoiceDoc({ items, date, supplier, customer, stamp, remark, onRemarkCh
             const rowTot  = supply + (rowVat ?? 0);
             return (
               <tr key={it.id} className="item-tr">
-                <td colSpan={CS.item} style={{ ...dat, textAlign:'left', paddingLeft:8, borderLeft:OB }}>
+                <td colSpan={CS.item}  style={{ ...dat, textAlign:'left', paddingLeft:8, borderLeft:OB }}>
                   <span style={{ marginRight:4 }}>{it.name}</span>
                   <button className="del-btn" onClick={() => onRemove(it.id)} title="삭제">×</button>
                 </td>
@@ -1012,7 +980,7 @@ function InvoiceDoc({ items, date, supplier, customer, stamp, remark, onRemarkCh
             );
           })}
 
-          {/* ══ 빈 행 (최소 12행) ══ */}
+          {/* ══ 빈 행 (최소 C.MIN_ROWS = 20행) ══ */}
           {Array.from({ length: EMPTY }).map((_, i) => (
             <tr key={`e${i}`}>
               <td colSpan={CS.item}  style={{ ...emp, borderLeft:OB }}></td>
@@ -1040,16 +1008,13 @@ function InvoiceDoc({ items, date, supplier, customer, stamp, remark, onRemarkCh
           <tr>
             <td colSpan={3} style={{ ...lbl, borderLeft:OB, borderTop:IB, borderBottom:IB, borderRight:IB, letterSpacing:3, padding:'6px 5px' }}>비 고</td>
             <td colSpan={21} style={{ borderLeft:IB, borderTop:IB, borderBottom:IB, borderRight:OB, padding:'5px 10px' }}>
-              <input
-                value={remark}
-                onChange={e => onRemarkChange(e.target.value)}
-                style={{ width:'100%', border:'none', outline:'none', fontFamily:'Noto Sans KR, sans-serif', fontSize:12, background:'transparent', color:'#1a1a1a' }}
-              />
+              <input value={remark} onChange={e => onRemarkChange(e.target.value)}
+                style={{ width:'100%', border:'none', outline:'none', fontFamily:'Noto Sans KR, sans-serif', fontSize:12, background:'transparent', color:'#1a1a1a' }} />
             </td>
           </tr>
 
           {/* ══ 인수자 ══ */}
-          <tr style={{ height: 52 }}>
+          <tr style={{ height:52 }}>
             <td colSpan={18} style={{ borderLeft:OB, borderBottom:OB, borderTop:IB, borderRight:IB }}></td>
             <td colSpan={2}  style={{ borderLeft:IB, borderBottom:OB, borderTop:IB, borderRight:IB, textAlign:'center', fontSize:12, fontWeight:600, letterSpacing:3 }}>인 수 자</td>
             <td colSpan={4}  style={{ borderLeft:IB, borderBottom:OB, borderTop:IB, borderRight:OB }}></td>
@@ -1073,30 +1038,37 @@ function App() {
   const [stamp,     setStamp]     = useState(null);
   const [date,      setDate]      = useState(todayISO);
   const [remark,    setRemark]    = useState(() => loadLS('zytn_remark', '입금계좌안내 : 국민은행 282437-04-004633 주식회사 지튼'));
-  const [modal,     setModal]     = useState(null); // 'supplier'|'customer'|'catalog'|'json'
+  const [modal,     setModal]     = useState(null);
   const [toast,     setToast]     = useState(null);
 
-  const stampRef      = useRef(null);
+  /* ★ Confirm 상태 (confirm() 제거) */
+  const [confirmState, setConfirmState] = useState(null);
+
+  const stampRef       = useRef(null);
   const importInputRef = useRef(null);
 
-  /* 도장 로드: localStorage 즉시 → IndexedDB로 갱신 (모바일/데스크탑 공통) */
+  const showToast  = msg => { setToast(msg); setTimeout(() => setToast(null), C.TOAST_MS); };
+  const handleError = makeErrorHandler(showToast);
+
+  /* ★ ConfirmModal 열기 헬퍼 */
+  function openConfirm(message, detail, onConfirm) {
+    setConfirmState({ message, detail, onConfirm });
+  }
+
+  /* 도장 → IndexedDB 로드 */
   useEffect(() => {
-    /* 1) localStorage에서 즉시 로드 (JSON import 동기화 지원) */
-    const ls = loadLS('zytn_stamp', null);
-    if (ls) setStamp(ls);
-    /* 2) IndexedDB에서 덮어쓰기 (더 최신일 경우) */
-    idbGet('stamp')
-      .then(v => { if (v) { setStamp(v); saveLS('zytn_stamp', v); } })
-      .catch(() => {});
+    idbGet('stamp').then(v => { if (v) setStamp(v); }).catch(e => console.warn('[idb]', e));
   }, []);
 
-  /* 자동 저장 (localStorage) */
-  useEffect(() => { saveLS('zytn_items',     items);     }, [items]);
-  useEffect(() => { saveLS('zytn_supplier',  supplier);  }, [supplier]);
-  useEffect(() => { saveLS('zytn_customer',  customer);  }, [customer]);
-  useEffect(() => { saveLS('zytn_customers', customers); }, [customers]);
-  useEffect(() => { saveLS('zytn_catalog',   catalog);   }, [catalog]);
-  useEffect(() => { saveLS('zytn_remark',    remark);    }, [remark]);
+  /* ★ 자동 저장 통합 (6개 → 1개 — Step 1) */
+  useEffect(() => {
+    saveLS('zytn_items',     items);
+    saveLS('zytn_supplier',  supplier);
+    saveLS('zytn_customer',  customer);
+    saveLS('zytn_customers', customers);
+    saveLS('zytn_catalog',   catalog);
+    saveLS('zytn_remark',    remark);
+  }, [items, supplier, customer, customers, catalog, remark]);
 
   /* JSON 가져오기 이벤트 */
   useEffect(() => {
@@ -1105,8 +1077,6 @@ function App() {
     const handler = async e => {
       const file = e.target.files[0];
       if (!file) return;
-
-      /* 트랜잭션: 파싱 실패 시 기존 데이터 유지 */
       let data;
       try {
         const text = await file.text();
@@ -1117,41 +1087,29 @@ function App() {
         e.target.value = '';
         return;
       }
-
-      const msg = [
+      const detail = [
         `공급자: ${data.supplier?.name || '없음'}`,
         `카탈로그 품목: ${data.catalog?.length ?? 0}개`,
         `거래처 목록: ${data.customers?.length ?? 0}개`,
         `현재 명세서 품목: ${data.currentItems?.length ?? 0}개`,
-        `도장 이미지: ${data.stamp ? '포함' : '없음'}`,
       ].join('\n');
 
-      if (!confirm(`다음 데이터를 가져올까요?\n\n${msg}\n\n기존 데이터는 덮어쓰입니다.`)) {
-        e.target.value = '';
-        return;
-      }
-
-      if (data.supplier)     setSupplier(data.supplier);
-      if (data.catalog)      setCatalog(data.catalog);
-      if (data.customers)    setCustomers(data.customers);
-      if (data.customer)     setCustomer(data.customer);
-      if (data.currentItems) setItems(data.currentItems);
-      if (data.remark != null) setRemark(data.remark);
-      if (data.stamp) {
-        setStamp(data.stamp);
-        saveLS('zytn_stamp', data.stamp);
-        idbSet('stamp', data.stamp).catch(() => {});
-      }
-
-      showToast(`✅ 데이터 가져오기 완료`);
+      /* ★ confirm() → ConfirmModal */
+      openConfirm('다음 데이터를 가져올까요?\n기존 데이터는 덮어쓰입니다.', detail, () => {
+        if (data.supplier)     setSupplier(data.supplier);
+        if (data.catalog)      setCatalog(data.catalog);
+        if (data.customers)    setCustomers(data.customers);
+        if (data.customer)     setCustomer(data.customer);
+        if (data.currentItems) setItems(data.currentItems);
+        if (data.remark != null) setRemark(data.remark);
+        showToast('✅ 데이터 가져오기 완료');
+        setModal(null);
+      });
       e.target.value = '';
-      setModal(null);
     };
     input.addEventListener('change', handler);
     return () => input.removeEventListener('change', handler);
   }, []);
-
-  const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2800); };
 
   /* 도장 */
   function handleStampFile(e) {
@@ -1160,65 +1118,27 @@ function App() {
     r.onload = async ev => {
       const data = ev.target.result;
       setStamp(data);
-      /* IndexedDB + localStorage 동시 저장 (모바일 동기화용) */
-      saveLS('zytn_stamp', data);
       try { await idbSet('stamp', data); showToast('✅ 도장이 등록되었습니다'); }
-      catch  { showToast('✅ 도장이 등록되었습니다 (localStorage)'); }
+      catch(e) { handleError('도장 저장', e); }
     };
     r.readAsDataURL(f);
     e.target.value = '';
   }
 
-  /* 공급자 */
-  function handleSupplierSave(s) {
-    setSupplier(s);
-    setModal(null);
-    showToast('✅ 공급자 정보가 저장되었습니다');
-  }
-
-  /* 거래처 */
-  function handleCustomerApply(c) {
-    setCustomer(c);
-    setModal(null);
-    showToast('✅ 거래처 정보가 적용되었습니다');
-  }
-  function handleCustomerSaveToList(c) {
-    const entry = { ...c, id: Date.now() };
-    setCustomers(prev => [...prev, entry]);
-    showToast(`✅ '${c.name}' 거래처 목록에 저장됨`);
-  }
-  function handleCustomerDeleteFromList(id) {
-    setCustomers(prev => prev.filter(c => c.id !== id));
-  }
-
-  /* 카탈로그 */
-  function handleCatalogDelete(id) {
-    setCatalog(prev => prev.filter(c => c.id !== id));
-  }
-
-  /* 품목 삭제 */
+  function handleSupplierSave(s) { setSupplier(s); setModal(null); showToast('✅ 공급자 정보가 저장되었습니다'); }
+  function handleCustomerApply(c) { setCustomer(c); setModal(null); showToast('✅ 거래처 정보가 적용되었습니다'); }
+  function handleCustomerSaveToList(c) { setCustomers(prev => [...prev, { ...c, id: Date.now() }]); showToast(`✅ '${c.name}' 거래처 목록에 저장됨`); }
+  function handleCustomerDeleteFromList(id) { setCustomers(prev => prev.filter(c => c.id !== id)); }
+  function handleCatalogDelete(id) { setCatalog(prev => prev.filter(c => c.id !== id)); }
   function removeItem(id) { setItems(prev => prev.filter(it => it.id !== id)); }
 
-  /* JSON 내보내기 */
   function handleExport() {
     const today = todayISO();
-    const data = {
-      version:      1,
-      exportedAt:   today,
-      supplier,
-      catalog,
-      customers,
-      customer,
-      currentItems: items,
-      remark,
-      stamp,
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const data = { version:1, exportedAt:today, supplier, catalog, customers, customer, currentItems:items, remark };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `zytn_backup_${today}.json`;
-    a.click();
+    a.href = url; a.download = `zytn_backup_${today}.json`; a.click();
     URL.revokeObjectURL(url);
     showToast('✅ JSON 파일이 내보내졌습니다');
   }
@@ -1232,7 +1152,6 @@ function App() {
         <span className="sub">Auto Trade Statement</span>
       </div>
 
-      {/* 숨김 인풋 */}
       <input ref={stampRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleStampFile} />
 
       <ControlPanel
@@ -1243,25 +1162,26 @@ function App() {
         onCustomerClick={() => setModal('customer')}
         onStampClick={() => stampRef.current?.click()}
         onJsonClick={() => setModal('json')}
+        onConfirm={openConfirm}
       />
 
       <div className="inv-wrap">
         <InvoiceDoc
-          items={items} date={date}
-          supplier={supplier} customer={customer}
-          stamp={stamp}
-          remark={remark} onRemarkChange={setRemark}
+          items={items} date={date} supplier={supplier} customer={customer}
+          stamp={stamp} remark={remark}
+          onRemarkChange={setRemark}
           onRemove={removeItem}
           onStampClick={() => stampRef.current?.click()}
         />
       </div>
 
       <div className="action-panel">
-        <button className="btn btn-print" onClick={() => setModal('share')}>🖨️ 인쇄 / PDF 저장</button>
-        <button className="btn btn-soft" onClick={() => setModal('catalog')}>📋 카탈로그 관리</button>
+        <button className="btn btn-print" onClick={() => window.print()}>🖨️ 인쇄 / PDF 저장</button>
+        <button className="btn btn-primary" onClick={() => setModal('share')}>📤 공유</button>
+        <button className="btn btn-soft"    onClick={() => setModal('catalog')}>📋 카탈로그</button>
       </div>
 
-      {/* ── 모달 ── */}
+      {/* ── Modals ── */}
       {modal === 'supplier' && (
         <SupplierModal supplier={supplier} onSave={handleSupplierSave} onClose={() => setModal(null)} />
       )}
@@ -1278,10 +1198,20 @@ function App() {
         <CatalogModal catalog={catalog} onDelete={handleCatalogDelete} onClose={() => setModal(null)} />
       )}
       {modal === 'share' && (
-        <ShareModal onClose={() => setModal(null)} />
+        <ShareModal onClose={() => setModal(null)} showToast={showToast} />
       )}
       {modal === 'json' && (
         <JsonModal onExport={handleExport} onClose={() => setModal(null)} importInputRef={importInputRef} />
+      )}
+
+      {/* ★ ConfirmModal */}
+      {confirmState && (
+        <ConfirmModal
+          message={confirmState.message}
+          detail={confirmState.detail}
+          onConfirm={() => { confirmState.onConfirm(); setConfirmState(null); }}
+          onCancel={() => setConfirmState(null)}
+        />
       )}
 
       {toast && <div className="toast">{toast}</div>}
